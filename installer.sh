@@ -14,15 +14,16 @@
 #
 #!/usr/bin/env bash
 
-#set -x
+set -x
 
 set -e
 set -o nounset                              # Treat unset variables as an error
 ScriptVersion="1.0"
 ScriptName="installer.sh"
 
-InstallMySql=0
-MYSQL_ROOT_PASSWORD=${2:-stackops}
+InstallMySql="false"
+InstallApache="false"
+MYSQL_ROOT_PASSWORD="stackops"
 
 usage() {
     cat << EOT
@@ -33,10 +34,11 @@ usage() {
   -h|help       Display this message
   -v|version    Display script version
   -m|mysql	Installs MySQL server
+  -a|apache	Installs Apache server
 EOT
 }
 
-while getopts ":hvmc:" opt
+while getopts ":hvmac:" opt
 do
   case $opt in
 
@@ -45,7 +47,10 @@ do
     v|version       )  echo "$0 -- Version $ScriptVersion"; exit 0   ;;
 
     m|mysql         )  echo "\nA MySQL server will be installed in this server\n"
-                       InstallMySql=1;  ;;
+                       InstallMySql="true";  ;;
+
+    a|apache        )  echo "\nAn Apache server will be installed in this server\n"
+                       InstallApache="true";  ;;
 
     \?              )  echo "\n  Option does not exist : $OPTARG\n"
                        usage; exit 1   ;;
@@ -320,24 +325,130 @@ __configure_apt_repos() {
 
 __configure_clinker_key() {
     wget $1
-    keytool -keystore /usr/lib/jvm/java-7-openjdk-amd64/jre/lib/security/cacerts -storepass changeit -import -trustcacerts -v -alias clinker -file clinker.cert 
+    set +e
+    keytool -keystore /usr/lib/jvm/java-7-openjdk-amd64/jre/lib/security/cacerts -delete -alias clinker -storepass changeit  -noprompt
+    set -e
+    keytool -keystore /usr/lib/jvm/java-7-openjdk-amd64/jre/lib/security/cacerts -storepass changeit -import -trustcacerts -v -alias clinker -file clinker.cert -noprompt
     rm clinker.cert
+}
+
+__configure_apache() {
+    a2enmod proxy_http
+    a2enmod ssl
+    a2enmod rewrite
+    a2ensite default-ssl
+
+cat <<EOF > /etc/apache2/sites-available/default
+<VirtualHost *:80>
+    ServerAdmin webmaster@localhost
+    ServerName  localhost
+    ProxyPreserveHost On
+    ProxyRequests Off
+    ProxyPass /portal http://127.0.0.1:8080/portal
+    ProxyPassReverse /portal http://127.0.0.1:8080/portal
+    RewriteEngine on
+    ReWriteCond %{SERVER_PORT} !^443\$
+    RewriteRule ^/$ https://%{HTTP_HOST}/portal [R]
+    RewriteRule ^/(.*) https://%{HTTP_HOST}/\$1 [NC,R,L]
+    <Proxy *>
+        Order allow,deny
+        Allow from all
+    </Proxy>
+    ErrorLog /var/log/apache2/apache-portal-error.log
+    TransferLog /var/log/apache2/apache-portal-access.log
+</VirtualHost>
+EOF
+
+cat <<EOF > /etc/apache2/sites-available/default-ssl
+<IfModule mod_ssl.c>
+<VirtualHost *:443>
+   ServerAdmin webmaster@localhost
+   ServerName  localhost
+   ProxyPreserveHost On
+   ProxyRequests Off
+   ProxyPass /portal http://127.0.0.1:8080/portal
+   ProxyPassReverse /portal http://127.0.0.1:8080/portal
+   <Proxy *>
+       Order allow,deny
+       Allow from all
+   </Proxy>
+   ErrorLog /var/log/apache2/apachessl-portal-error.log
+   TransferLog /var/log/apache2/apachessl-portal-access.log
+   SSLEngine on
+   RewriteEngine on
+   RewriteRule ^/$ https://%{HTTP_HOST}/portal [R]
+   SSLCertificateFile /etc/ssl/certs/sslcert.crt
+   SSLCertificateKeyFile /etc/ssl/private/sslcert.key
+   <FilesMatch "\.(cgi|shtml|phtml|php)$">
+       SSLOptions +StdEnvVars
+   </FilesMatch>
+   <Directory /usr/lib/cgi-bin>
+       SSLOptions +StdEnvVars
+   </Directory>
+   BrowserMatch "MSIE [2-6]" nokeepalive ssl-unclean-shutdown downgrade-1.0 force-response-1.0
+   # MSIE 7 and newer should be able to use keepalive
+   BrowserMatch "MSIE [17-9]" ssl-unclean-shutdown
+</VirtualHost>
+</IfModule>
+EOF
+
+cat <<EOF > /tmp/nonsecure.key
+-----BEGIN RSA PRIVATE KEY-----
+MIIEowIBAAKCAQEAtO4zZwNYOzux+ymvrW7kMojJ9diI7WxmPvESa1FNdY45TN5Z
+WYSYcgYKDT/OuHDi9+49LlRPksV35scGNIJbqV9Cr4L0vHXfb9E9EdOIIkv3jOG9
+QhhwIPxKrpJQP1hkPyxybWkH/IVHY06OxLIWPJO3NC74sQQvXZ2mMUoOW5KcQwiK
+GfWf3mJKCccocNv3MXP4cb6ay7DQtbgQigjZaoQxffkJvq083h3y5lSQpnI56yBE
+XHtHam8XCPnu7Axj0v5AGGaTYOa4RAzkG8PKpcvL8TRjPL3TMiiKJM2rQVrHdjcK
+qBSOCr+fSNlr7E5KVBN8pfrsmly+NoflhA7hdQIDAQABAoIBAQCyz2rrlsmfGJsI
+TyV48MwECV4XYt3IT0YpVFTQzPQRhvKoPmLtbna+0asjdvkVHTOitcevPtG5iwC5
+id5fDKoMFMIx9OlsS837kz2YnYa/5nYLvJkvdjly0AP6zU0TnYbNTF72NEQZU5q+
+0UeVqy8AxTfdEcLkJu+sxH4X3kmcQvhz2q7L2pbSgZ0JeL1Nfxmy0cjsSKEVy3qY
+0tLVm4xHStoYNBpzgXyBqhz/wAhOcctUyl5qvpNzgR+ihASNRKYKIGcpjgjaSryk
+0Gp8WmwrSuy1qQ8iqKRkSa5SSWqwl1umWlb1V8+7m4ic0A/GJEhzJ5pfXPMaOQuF
+eHG60JNNAoGBAOyA1R1US5mjoaIZmahR2Rl6nYFQQy3HNqQy1AZU5hB4uTrMA2eW
+sSxt1RMBjlE9C0sUOFB95w48/gZNI6JPdMFGgcux5WrndDruY8txiVl3rw2Dw7Ih
+JMxNBsJRO0AZgijUm11HPBp/tJ4HjppZiqE0exjoNFGOLc/l4VOZ1PbDAoGBAMPY
+j0dS7eHcsmu+v6EpxbRFwSyZG0eV51IiT0DFLfiSpsfmtHdA1ZQeqbVadM1WJSLu
+ZJ8uvGNRnuLgz2vwKdI6kJFfWYZSS5jfnl874/OF6riNQDseX5CvB5zQvTFVmae+
+Mld4x2NYFxQ1vIWnGITGQKhcZonBMyAjaQ9tAnNnAoGASvTOFpyX1VryKHEarSk7
+uIKPFuP8Vq7z13iwkE0qGYBZnJP6ZENzZdRtmrd8hqzlPmdrLb+pkm6sSAz8xT2P
+kI4rJwb74jT3NpJFmL4kPPHczli7lmJAymuDP+UE9VzgTtaLYzXni7J76TYV8T99
+23fJp+w4YLzCMkj2cEuqHocCgYBb2KEBMwwqw4TNcOyP2XZFn/0DPF6FyPBuHXcL
+ii2QCL68ux5hWv+O8n5mdaCXd9H8us5ntNRWw71+6y17kmsak6qe8peandekPyMX
+yI+T8nbszBmWYB0zTlKEoYRIsbtY5qLXUOY5WeOg776U85NVGWDTVFomOnwOk2y+
+9kGS+wKBgD3cL/zabIv/kK7KY84EdWdVH4sal3bRsiNn4ezj7go/ObMgR59O4Lr4
+fYqT1igILotduz/knlkleY2fsqltStWYzRrG+/zNryIBco2+cIX8T120AnpbAvlP
+gj0YVjuLJXSC9w/URFG+ZGg0kX0Koy1yS6fuxikiA4f5Lw9znjaD
+-----END RSA PRIVATE KEY-----
+EOF
+
+openssl req -nodes -newkey rsa:2048 -keyout /tmp/nonsecure.key -out /tmp/server.csr -subj "/C=ES/ST=MADRID/L=MADRID/O=STACKOPS TECHNOLOGIES SL./OU=STACKOPS PORTAL/CN=127.0.0.1"
+openssl rsa -in /tmp/nonsecure.key -out /tmp/ssl.key
+openssl x509 -req -days 365 -in /tmp/server.csr -signkey /tmp/ssl.key -out /tmp/ssl.crt
+cp /tmp/ssl.crt /etc/ssl/certs/sslcert.crt
+cp /tmp/ssl.key /etc/ssl/private/sslcert.key
 }
 
 install_ubuntu_1404() {
     __configure_apt_repos "havana"
     __check_command "curl"
     if [ "${InstallMySql}" = "true" ]; then
-        echo mysql-server-5.5 mysql-server/root_password password $MYSQL_ROOT_PASSWORD | debconf-set-selections
-        echo mysql-server-5.5 mysql-server/root_password_again password $MYSQL_ROOT_PASSWORD | debconf-set-selections
-        echo mysql-server-5.5 mysql-server/start_on_boot boolean true | debconf-set-selections
-        __apt_get_noinput mysql-server        
+        echo mysql-server mysql-server/root_password password $MYSQL_ROOT_PASSWORD | debconf-set-selections
+        echo mysql-server mysql-server/root_password_again password $MYSQL_ROOT_PASSWORD | debconf-set-selections
+        echo mysql-server mysql-server/start_on_boot boolean true | debconf-set-selections
+        __apt_get_noinput mysql-server
+    fi
+    if [ "${InstallApache}" = "true" ]; then
+        __apt_get_noinput apache2
+	__configure_apache
+	service apache2 restart
     fi
     __apt_get_noinput mysql-client
     __apt_get_noinput openjdk-7-jdk
     __configure_clinker_key https://dl.dropboxusercontent.com/u/527582/clinker.cert
     __apt_get_noinput tomcat7
-    
+    __apt_get_noinput stackops-portal
+
 }
 
 post_install_ubuntu_1404() {
@@ -345,7 +456,7 @@ post_install_ubuntu_1404() {
 }
 
 conf_ubuntu_1404() {
-    auth_token=`__get_auth_token`
+#    auth_token=`__get_auth_token`
     echo "Token: $auth_token"
 }
 
