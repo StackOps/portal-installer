@@ -489,7 +489,8 @@ post_install_ubuntu_1404() {
 
 conf_ubuntu_1404() {
 #    auth_token=`__get_auth_token`
-    echo "Token: $auth_token"
+#    echo "Token: $auth_token"
+    echo "configuring the database server"
 }
 
 
