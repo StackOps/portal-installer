@@ -19,31 +19,31 @@ StackOps Portal can install an Apache server to proxy the HTTP or HTTPS requests
 
 ##How to install StackOps Portal and reuse and existing MySQL server installation
 
-`curl -L goo.gl/cItQkQ | sudo sh -s`
+`sudo bash -c "source <( curl -L goo.gl/cItQkQ )"`
 
 Once executed, you will have to connect to port 8080 on URI 'portal'. Example: http://yourserver:8080/portal
 
 ##How to install StackOps Portal and install your own MySQL server locally
 
-`curl -L goo.gl/cItQkQ | sudo sh -s -- -m`
+`sudo bash -c "source <( curl -L goo.gl/cItQkQ ) -m"`
 
 Once executed, you will have to connect to port 8080 on URI 'portal'. Example: http://yourserver:8080/portal
 
 ##How to install StackOps Portal and install your own Apache Proxy for HTTP traffic
 
-`curl -L goo.gl/cItQkQ | sudo sh -s -- -a`
+`sudo bash -c "source <( curl -L goo.gl/cItQkQ ) -a"`
 
 Once executed, you will have to connect to port 80. Example: http://yourserver
 
 ##How to install StackOps Portal and install your own Apache Proxy for HTTPS traffic
 
-`curl -L goo.gl/cItQkQ | sudo sh -s -- -s`
+`sudo bash -c "source <( curl -L goo.gl/cItQkQ ) -s"`
 
 Once executed, you will have to connect to port 80 or 443, because it will always redirect to port 443. Example: http://yourserver or https://yourserver
 
 ##How to install StackOps Portal and the whole enchilada (Apache HTTS Traffic and local MySQL server)
 
-`curl -L goo.gl/cItQkQ | sudo sh -s -- -m -s`
+`sudo bash -c "source <( curl -L goo.gl/cItQkQ ) -m -s"`
 
 Once executed, you will have to connect to port 80 or 443, because it will always redirect to port 443. Example: http://yourserver or https://yourserver
 
