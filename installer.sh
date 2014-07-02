@@ -338,7 +338,7 @@ __configure_clinker_key() {
 __configure_apache() {
     a2enmod proxy_http
     a2enmod rewrite
-    rename 's/(.*)/$1.bak/' /etc/apache2/sites-enabled/* 
+    rm /etc/apache2/sites-enabled/* 
     rename 's/(.*)/$1.bak/' /etc/apache2/sites-available/* 
 cat <<EOF > /etc/apache2/sites-available/000-default.conf
 <VirtualHost *:80>
@@ -366,7 +366,7 @@ __configure_apache_ssl() {
     a2enmod ssl
     a2enmod rewrite
     a2ensite default-ssl
-    rename 's/(.*)/$1.bak/' /etc/apache2/sites-enabled/* 
+    rm /etc/apache2/sites-enabled/* 
     rename 's/(.*)/$1.bak/' /etc/apache2/sites-available/*
 cat <<EOF > /etc/apache2/sites-available/000-default.conf
 <VirtualHost *:80>
