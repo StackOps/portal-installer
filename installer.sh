@@ -14,8 +14,6 @@
 #
 #!/usr/bin/env bash
 
-set -x
-
 set -e
 set -o nounset                              # Treat unset variables as an error
 ScriptVersion="1.0"
@@ -23,6 +21,7 @@ ScriptName="installer.sh"
 
 InstallMySql="false"
 InstallApache="false"
+InstallApacheWithSSL="false"
 MYSQL_ROOT_PASSWORD="stackops"
 
 usage() {
@@ -34,11 +33,12 @@ usage() {
   -h|help       Display this message
   -v|version    Display script version
   -m|mysql	Installs MySQL server
-  -a|apache	Installs Apache server
+  -a|apache	Installs Apache server for HTTP traffic
+  -s|ssl	Installs Apache server for HTTPS traffic (SSL)
 EOT
 }
 
-while getopts ":hvmac:" opt
+while getopts ":hvmasc:" opt
 do
   case $opt in
 
@@ -46,11 +46,14 @@ do
 
     v|version       )  echo "$0 -- Version $ScriptVersion"; exit 0   ;;
 
-    m|mysql         )  echo "\nA MySQL server will be installed in this server\n"
+    m|mysql         )  echo "\nA MySQL server will be installed on this server\n"
                        InstallMySql="true";  ;;
 
-    a|apache        )  echo "\nAn Apache server will be installed in this server\n"
+    a|apache        )  echo "\nAn Apache server for HTTP traffic will be installed on this server\n"
                        InstallApache="true";  ;;
+
+    s|ssl           )  echo "\nAn Apache server for HTTPS traffic will be installed on this server\n"
+                       InstallApacheWithSSL="true";  ;;
 
     \?              )  echo "\n  Option does not exist : $OPTARG\n"
                        usage; exit 1   ;;
@@ -334,6 +337,30 @@ __configure_clinker_key() {
 
 __configure_apache() {
     a2enmod proxy_http
+    a2enmod rewrite
+
+cat <<EOF > /etc/apache2/sites-available/default
+<VirtualHost *:80>
+    ServerAdmin webmaster@localhost
+    ServerName  localhost
+    ProxyPreserveHost On
+    ProxyRequests Off
+    ProxyPass /portal http://127.0.0.1:8080/portal
+    ProxyPassReverse /portal http://127.0.0.1:8080/portal
+    RewriteEngine on
+    RewriteRule ^/$ http://%{HTTP_HOST}/portal [R]
+    <Proxy *>
+        Order allow,deny
+        Allow from all
+    </Proxy>
+    ErrorLog /var/log/apache2/apache-portal-error.log
+    TransferLog /var/log/apache2/apache-portal-access.log
+</VirtualHost>
+EOF
+}
+
+__configure_apache_ssl() {
+    a2enmod proxy_http
     a2enmod ssl
     a2enmod rewrite
     a2ensite default-ssl
@@ -347,8 +374,8 @@ cat <<EOF > /etc/apache2/sites-available/default
     ProxyPass /portal http://127.0.0.1:8080/portal
     ProxyPassReverse /portal http://127.0.0.1:8080/portal
     RewriteEngine on
-    ReWriteCond %{SERVER_PORT} !^443\$
     RewriteRule ^/$ https://%{HTTP_HOST}/portal [R]
+    ReWriteCond %{SERVER_PORT} !^443\$
     RewriteRule ^/(.*) https://%{HTTP_HOST}/\$1 [NC,R,L]
     <Proxy *>
         Order allow,deny
@@ -442,6 +469,11 @@ install_ubuntu_1404() {
         __apt_get_noinput apache2
 	__configure_apache
 	service apache2 restart
+    fi
+    if [ "${InstallApacheWithSSL}" = "true" ]; then
+        __apt_get_noinput apache2
+        __configure_apache_ssl
+        service apache2 restart
     fi
     __apt_get_noinput mysql-client
     __apt_get_noinput openjdk-7-jdk
