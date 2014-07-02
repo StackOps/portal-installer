@@ -484,7 +484,8 @@ install_ubuntu_1404() {
     __apt_get_noinput openjdk-7-jdk
     __configure_clinker_key https://dl.dropboxusercontent.com/u/527582/clinker.cert
     __apt_get_noinput tomcat7
-    bash -c 'apt-get install stackops-portal'
+    __apt_get_noinput stackops-portal
+    service tomcat7 restart
 
 }
 
