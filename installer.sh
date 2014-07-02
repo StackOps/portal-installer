@@ -338,8 +338,9 @@ __configure_clinker_key() {
 __configure_apache() {
     a2enmod proxy_http
     a2enmod rewrite
-
-cat <<EOF > /etc/apache2/sites-available/default
+    rename 's/(.*)/$1.bak/' /etc/apache2/sites-enabled/* 
+    rename 's/(.*)/$1.bak/' /etc/apache2/sites-available/* 
+cat <<EOF > /etc/apache2/sites-available/000-default.conf
 <VirtualHost *:80>
     ServerAdmin webmaster@localhost
     ServerName  localhost
@@ -357,6 +358,7 @@ cat <<EOF > /etc/apache2/sites-available/default
     TransferLog /var/log/apache2/apache-portal-access.log
 </VirtualHost>
 EOF
+    ln -s /etc/apache2/sites-available/000-default.conf /etc/apache2/sites-enabled/000-default.conf
 }
 
 __configure_apache_ssl() {
@@ -364,8 +366,9 @@ __configure_apache_ssl() {
     a2enmod ssl
     a2enmod rewrite
     a2ensite default-ssl
-
-cat <<EOF > /etc/apache2/sites-available/default
+    rename 's/(.*)/$1.bak/' /etc/apache2/sites-enabled/* 
+    rename 's/(.*)/$1.bak/' /etc/apache2/sites-available/*
+cat <<EOF > /etc/apache2/sites-available/000-default.conf
 <VirtualHost *:80>
     ServerAdmin webmaster@localhost
     ServerName  localhost
@@ -385,8 +388,9 @@ cat <<EOF > /etc/apache2/sites-available/default
     TransferLog /var/log/apache2/apache-portal-access.log
 </VirtualHost>
 EOF
+    ln -s /etc/apache2/sites-available/000-default.conf /etc/apache2/sites-enabled/000-default.conf
 
-cat <<EOF > /etc/apache2/sites-available/default-ssl
+cat <<EOF > /etc/apache2/sites-available/000-default-ssl.conf
 <IfModule mod_ssl.c>
 <VirtualHost *:443>
    ServerAdmin webmaster@localhost
@@ -418,6 +422,7 @@ cat <<EOF > /etc/apache2/sites-available/default-ssl
 </VirtualHost>
 </IfModule>
 EOF
+    ln -s /etc/apache2/sites-available/000-default-ssl.conf /etc/apache2/sites-enabled/000-default-ssl.conf
 
 cat <<EOF > /tmp/nonsecure.key
 -----BEGIN RSA PRIVATE KEY-----
