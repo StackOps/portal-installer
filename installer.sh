@@ -479,7 +479,7 @@ install_ubuntu_1404() {
     __apt_get_noinput openjdk-7-jdk
     __configure_clinker_key https://dl.dropboxusercontent.com/u/527582/clinker.cert
     __apt_get_noinput tomcat7
-    __apt_get_noinput stackops-portal
+    apt-get install stackops-portal
 
 }
 
@@ -490,7 +490,7 @@ post_install_ubuntu_1404() {
 conf_ubuntu_1404() {
 #    auth_token=`__get_auth_token`
 #    echo "Token: $auth_token"
-    echo "configuring the database server"
+    echo "configuring the portal server"
 }
 
 
