@@ -50,13 +50,13 @@ do
 
     v|version       )  echo "$0 -- Version $ScriptVersion"; exit 0   ;;
 
-    m|mysql         )  echo "\nA MySQL server will be installed on this server\n"
+    m|mysql         )  echo "\n * A MySQL server will be installed on this server\n"
                        InstallMySql="true";  ;;
 
-    a|apache        )  echo "\nAn Apache server for HTTP traffic will be installed on this server\n"
+    a|apache        )  echo "\n * An Apache server for HTTP traffic will be installed on this server\n"
                        InstallApache="true";  ;;
 
-    s|ssl           )  echo "\nAn Apache server for HTTPS traffic will be installed on this server\n"
+    s|ssl           )  echo "\n * An Apache server for HTTPS traffic will be installed on this server\n"
                        InstallApacheWithSSL="true";  ;;
 
     \?              )  echo "\n  Option does not exist : $OPTARG\n"
@@ -318,9 +318,11 @@ __check_command() {
 }
 
 __get_auth_token() {
+    set +e
     credentials=`curl -s -d "{\"auth\":{\"passwordCredentials\": {\"username\": \"$OS_USERNAME\", \"password\": \"$OS_PASSWORD\"}, \"tenantName\": \"$OS_TENANT_NAME\"}}" -H "Content-type: application/json" $OS_AUTH_URL/tokens`
     auth_token=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['access']['token']['id'];"`
-    [ ! -z "${auth_token}" ] || { echo >&2 `echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['error'];"`; exit 1; }
+    [ ! -z "${auth_token}" ] || { echo >&2 `echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['error'];"`; }
+    set -e
     echo $auth_token
 }
 
@@ -330,6 +332,15 @@ __is_portal_admin() {
     result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); t = tok['access']['user']['roles']; print any(d['name'] == 'ROLE_PORTAL_ADMIN' for d in t) "`
     set -e
     [ ! -z "${result}" ] || { echo >&2 `echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['error'];"`; }
+    echo $result
+}
+
+__is_keystone_admin() {
+    set +e
+    credentials=`curl -s $OS_AUTH_URL -H \"Content-type: application/json\"`
+    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['version']['id']=='v2.0'"`
+    [ ! -z "${result}" ] || { echo >&2 `echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['error'];"`; }
+    set -e
     echo $result
 }
 
@@ -474,57 +485,109 @@ cp /tmp/ssl.crt /etc/ssl/certs/sslcert.crt
 cp /tmp/ssl.key /etc/ssl/private/sslcert.key
 }
 
+__show_instructions(){
+    echo "\n\nWelcome to StackOps Portal assisted installer. This script will guide you through the installation process of StackOps Portal. Before proceeding, let's review the system requirements first:"
+    echo "1) StackOps Portal needs to have access to Keystone Administration endpoint and also needs Keystone token."
+    echo "2) The default installation also needs to have access to all OpenStack and StackOps APIs through the INTERNAL URL. This is mandatory."
+    echo "3) To setup and configure the platform properly, an user with Administrator privileges is needed"
+    echo "4) A special role must be created in your OpenStack Platform: ROLE_PORTAL_ADMIN"
+    echo "5) Add this role to your user with Administrator privileges before continuing"
+    echo "6) StackOps Portal needs a MySQL/MariaDB at runtime. You can install a dedicated database or use an external one."
+    echo "7) You can optionally install an Apache server to proxy all traffic from port 80 or 443 to port 8080 (Tomcat). It's highly recommended for production environments".
+    echo ""
+    echo "And now, please enter the information to access Keystone before proceeding. The script will stop if some of the requirements are not fullfilled."
+    echo ""
+}
+
+__show_instructions
+
 __check_keystone(){
-exitloop="none"
-while [ "$exitloop" == "none" ]
+exitloop=0
+while [ $exitloop -eq 0 ];
 do
-    echo "Enter the authentication admin url [$OS_AUTH_URL]: "
+    echo -n "Enter the authentication admin url [$OS_AUTH_URL]: "
     read response
     if [ -n "$response" ]; then
         OS_AUTH_URL=$response
     fi
 
-    echo "Enter the username with admin privileges [$OS_USERNAME]: "
+    echo -n "Enter the username with admin privileges [$OS_USERNAME]: "
     read response
     if [ -n "$response" ]; then
         OS_USERNAME=$response
     fi
 
-    echo "Enter the tenant [$OS_TENANT_NAME]: "
+    echo -n "Enter the tenant [$OS_TENANT_NAME]: "
     read response
     if [ -n "$response" ]; then
         OS_TENANT_NAME=$response
     fi
-    exitloop="exit"
+    exitloop=1
 done
 
-exitloop="none"
-while [ "$exitloop" == "none" ]
+exitloop=0
+while [ $exitloop -eq 0 ];
 do
-    echo "Enter the password: "
+    echo -n "Enter the password: "
     read response
     if [ -n "$response" ]; then
         OS_PASSWORD=$response
-        exitloop="exit"
+        exitloop=1
+    else
+        echo "Password cannot be empty. Repeat. "
     fi
 done
 
+echo " * Admin user Information:"
+echo "     URL:          ${OS_AUTH_URL}"
+echo "     Username:     ${OS_USERNAME}"
+echo "     Password:     ${OS_PASSWORD}"
+echo "     Tenant:       ${OS_TENANT_NAME}"
+
+is_keystone_admin=`__is_keystone_admin`
+if [ "${is_keystone_admin}" != "True" ] ; then
+    echo " * ERROR: Cannot verify keystone admin url for version v2.0. Check the url is reachable and points to v2.0 API. Then re-run the script."
+    exit 1
+fi
 auth_token=`__get_auth_token`
+if [ ! -n "${auth_token}" ] ; then
+    echo " * ERROR: Cannot authenticate the admin user with url, user, tenant and password given. Check your credentials and re-run the script."
+    exit 1
+fi
 is_portal_admin=`__is_portal_admin $auth_token`
 
 if [ "${is_portal_admin}" != "True" ] ; then
     echo " * ERROR: The admin user does not have the role ROLE_PORTAL_ADMIN. Add this role to the admin and re-run the script."
     exit 1
 fi
-#echo $OS_USERNAME
-#echo $OS_PASSWORD
-#echo $OS_TENANT_NAME
-#echo $OS_AUTH_URL
-#echo $auth_token
-#echo $is_portal_admin
+
+echo "     Auth Token:   ${auth_token}"
 
 }
 __check_keystone
+
+__check_mysql(){
+exitloop=0
+while [ $exitloop -eq 0 ];
+do
+    echo -n "Enter the ROOT password of your MySQL installation. Empty is not allowed: "
+    read response
+    if [ -n "$response" ]; then
+        MYSQL_ROOT_PASSWORD=$response
+        exitloop=1
+    else
+        echo "Password cannot be empty. Repeat. "
+    fi
+done
+
+echo " * MySQL ROOT information:"
+echo "     Password:     ${MYSQL_ROOT_PASSWORD}"
+echo " * In the post install process the installer will ask you about the connection details to MySQL"
+}
+
+if [ "${InstallMySql}" = "true" ]; then
+    __check_mysql
+fi
 
 install_ubuntu_1404() {
     __configure_apt_repos "havana"
@@ -534,6 +597,8 @@ install_ubuntu_1404() {
         echo mysql-server mysql-server/root_password_again password $MYSQL_ROOT_PASSWORD | debconf-set-selections
         echo mysql-server mysql-server/start_on_boot boolean true | debconf-set-selections
         __apt_get_noinput mysql-server
+
+        echo stackops-portal stackops-portal/mysql-admin-password $MYSQL_ROOT_PASSWORD | debconf-set-selections
     fi
     if [ "${InstallApache}" = "true" ]; then
         __apt_get_noinput apache2
@@ -545,6 +610,9 @@ install_ubuntu_1404() {
         __configure_apache_ssl
         service apache2 restart
     fi
+
+    echo stackops-portal stackops-portal/keystone-admin-url $OS_AUTH_URL | debconf-set-selections
+
     __apt_get_noinput mysql-client
     __apt_get_noinput openjdk-7-jdk
     __configure_clinker_key http://static.stackops.net/clinker.cert
@@ -592,14 +660,6 @@ conf_debian() {
 DEPS_INSTALL_FUNC="install_${DISTRO_NAME_L}${DISTRO_VERSION_NO_DOTS}"
 CONFIG_FUNC="conf_${DISTRO_NAME_L}${DISTRO_VERSION_NO_DOTS}"
 POST_INSTALL_FUNC="post_install_${DISTRO_NAME_L}${DISTRO_VERSION_NO_DOTS}"
-
-
-
-exit 1
-
-
-
-
 
 # Install dependencies
 echo " * Running ${DEPS_INSTALL_FUNC}()"
