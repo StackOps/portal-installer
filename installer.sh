@@ -23,6 +23,10 @@ InstallMySql="false"
 InstallApache="false"
 InstallApacheWithSSL="false"
 MYSQL_ROOT_PASSWORD="stackops"
+OS_USERNAME="admin"
+OS_PASSWORD=""
+OS_TENANT_NAME="admin"
+OS_AUTH_URL="http://api.stackops.net:35357/v2.0"
 
 usage() {
     cat << EOT
@@ -232,7 +236,7 @@ __gather_system_info() {
         sunos )
             __gather_sunos_system_info
             ;;
-        openbsd|freebsd|netbsd )
+        openbsd|freebsd|netbsd|darwin )
             __gather_bsd_system_info
             ;;
         * )
@@ -318,6 +322,15 @@ __get_auth_token() {
     auth_token=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['access']['token']['id'];"`
     [ ! -z "${auth_token}" ] || { echo >&2 `echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['error'];"`; exit 1; }
     echo $auth_token
+}
+
+__is_portal_admin() {
+    credentials=`curl -s $OS_AUTH_URL/tokens/$1 -H "X-Auth-Token:$1" -H "Content-type: application/json"`
+    set +e
+    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); t = tok['access']['user']['roles']; print any(d['name'] == 'ROLE_PORTAL_ADMIN' for d in t) "`
+    set -e
+    [ ! -z "${result}" ] || { echo >&2 `echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['error'];"`; }
+    echo $result
 }
 
 __configure_apt_repos() {
@@ -461,6 +474,58 @@ cp /tmp/ssl.crt /etc/ssl/certs/sslcert.crt
 cp /tmp/ssl.key /etc/ssl/private/sslcert.key
 }
 
+__check_keystone(){
+exitloop="none"
+while [ "$exitloop" == "none" ]
+do
+    echo "Enter the authentication admin url [$OS_AUTH_URL]: "
+    read response
+    if [ -n "$response" ]; then
+        OS_AUTH_URL=$response
+    fi
+
+    echo "Enter the username with admin privileges [$OS_USERNAME]: "
+    read response
+    if [ -n "$response" ]; then
+        OS_USERNAME=$response
+    fi
+
+    echo "Enter the tenant [$OS_TENANT_NAME]: "
+    read response
+    if [ -n "$response" ]; then
+        OS_TENANT_NAME=$response
+    fi
+    exitloop="exit"
+done
+
+exitloop="none"
+while [ "$exitloop" == "none" ]
+do
+    echo "Enter the password: "
+    read response
+    if [ -n "$response" ]; then
+        OS_PASSWORD=$response
+        exitloop="exit"
+    fi
+done
+
+auth_token=`__get_auth_token`
+is_portal_admin=`__is_portal_admin $auth_token`
+
+if [ "${is_portal_admin}" != "True" ] ; then
+    echo " * ERROR: The admin user does not have the role ROLE_PORTAL_ADMIN. Add this role to the admin and re-run the script."
+    exit 1
+fi
+#echo $OS_USERNAME
+#echo $OS_PASSWORD
+#echo $OS_TENANT_NAME
+#echo $OS_AUTH_URL
+#echo $auth_token
+#echo $is_portal_admin
+
+}
+__check_keystone
+
 install_ubuntu_1404() {
     __configure_apt_repos "havana"
     __check_command "curl"
@@ -482,7 +547,7 @@ install_ubuntu_1404() {
     fi
     __apt_get_noinput mysql-client
     __apt_get_noinput openjdk-7-jdk
-    __configure_clinker_key https://dl.dropboxusercontent.com/u/527582/clinker.cert
+    __configure_clinker_key http://static.stackops.net/clinker.cert
     __apt_get_noinput tomcat7
     __apt_get_noinput stackops-portal
     service tomcat7 restart
