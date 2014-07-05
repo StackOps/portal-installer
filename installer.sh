@@ -623,13 +623,11 @@ install_ubuntu_1404() {
 }
 
 post_install_ubuntu_1404() {
-     echo "Post install on ubuntu_1404"
+     echo "Post install service..."
 }
 
 conf_ubuntu_1404() {
-#    auth_token=`__get_auth_token`
-#    echo "Token: $auth_token"
-    echo "configuring the portal server"
+    echo "configuring the portal server..."
 }
 
 
@@ -642,6 +640,18 @@ post_install_ubuntu_1204() {
 }
 
 conf_ubuntu_1204() {
+    conf_ubuntu_1404
+}
+
+install_debian_74() {
+     install_ubuntu_1404
+}
+
+post_install_debian_74() {
+     post_install_ubuntu_1404
+}
+
+conf_debian_74() {
     conf_ubuntu_1404
 }
 
@@ -687,6 +697,3 @@ fi
 
 # Done!
 exit 0
-
-
-
