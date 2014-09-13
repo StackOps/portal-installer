@@ -19,6 +19,8 @@ set -o nounset                              # Treat unset variables as an error
 ScriptVersion="1.0"
 ScriptName="installer.sh"
 
+InstallPortal="false"
+InstallChargeback="false"
 InstallMySql="false"
 InstallApache="false"
 InstallApacheWithSSL="false"
@@ -27,6 +29,8 @@ OS_USERNAME="admin"
 OS_PASSWORD=""
 OS_TENANT_NAME="admin"
 OS_AUTH_URL="http://api.stackops.net:35357/v2.0"
+RABBITMQ_HOST=localhost
+RABBITMQ_PORT=5672
 
 usage() {
     cat << EOT
@@ -36,6 +40,8 @@ usage() {
   Options:
   -h|help       Display this message
   -v|version    Display script version
+  -c|chargeback	Installs StackOps Chargeback
+  -p|portal	Installs StackOps Portal
   -m|mysql	Installs MySQL server
   -a|apache	Installs Apache server for HTTP traffic
   -s|ssl	Installs Apache server for HTTPS traffic (SSL)
@@ -49,6 +55,12 @@ do
     h|help          )  usage; exit 0   ;;
 
     v|version       )  echo "$0 -- Version $ScriptVersion"; exit 0   ;;
+
+    p|portal        )  echo "\nA StackOps Portal will be installed on this server\n"
+                       InstallPortal="true";  ;;
+
+    c|chargeback    )  echo "\nA StackOps Chargeback will be installed on this server\n"
+                       InstallChargeback="true";  ;;
 
     m|mysql         )  echo "\nA MySQL server will be installed on this server\n"
                        InstallMySql="true";  ;;
@@ -333,6 +345,19 @@ __is_portal_admin() {
     echo $result
 }
 
+__is_chargeback_roles() {
+    credentials=`curl -s $OS_AUTH_URL/tokens/$1 -H "X-Auth-Token:$1" -H "Content-type: application/json"`
+    set +e
+    result_activity=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); t = tok['access']['user']['roles']; print any(d['name'] == 'ROLE_ACTIVITY' for d in t) "`
+    result_accounting=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); t = tok['access']['user']['roles']; print any(d['name'] == 'ROLE_ACCOUNTING' for d in t) "`
+    result_chargeback=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); t = tok['access']['user']['roles']; print any(d['name'] == 'ROLE_CHARGEBACK' for d in t) "`
+    result_activity_admin=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); t = tok['access']['user']['roles']; print any(d['name'] == 'ROLE_ACTIVITY_ADMIN' for d in t) "`
+    result_chargeback_admin=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); t = tok['access']['user']['roles']; print any(d['name'] == 'ROLE_CHARGEBACK_ADMIN' for d in t) "`
+    set -e
+    [ ! -z "${result}" ] || { echo >&2 `echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['error'];"`; }
+    echo $result
+}
+
 __configure_apt_repos() {
     echo "deb http://repos.stackops.net/ $1 main" > /etc/apt/sources.list.d/stackops.list
     wget -O - http://repos.stackops.net/keys/stackopskey_pub.gpg | apt-key add -
@@ -545,12 +570,26 @@ install_ubuntu_1404() {
         __configure_apache_ssl
         service apache2 restart
     fi
-    __apt_get_noinput mysql-client
-    __apt_get_noinput openjdk-7-jdk
-    __configure_clinker_key http://static.stackops.net/clinker.cert
-    __apt_get_noinput tomcat7
-    __apt_get_noinput stackops-portal
-    service tomcat7 restart
+
+    if [ "${InstallPortal}" = "true" ] || [ "${InstallChargeback}" = "true" ]; then
+        __apt_get_noinput mysql-client
+        __apt_get_noinput openjdk-7-jdk
+        __configure_clinker_key http://static.stackops.net/clinker.cert
+        __apt_get_noinput tomcat7
+    fi
+
+    if [ "${InstallPortal}" = "true" ]; then
+        __apt_get_noinput stackops-portal
+    fi
+
+    if [ "${InstallChargeback}" = "true" ]; then
+        __apt_get_noinput stackops-activity
+        __apt_get_noinput stackops-chargeback
+    fi
+
+    if [ "${InstallPortal}" = "true" ] || [ "${InstallChargeback}" = "true" ]; then
+        service tomcat7 restart
+    fi
 
 }
 
