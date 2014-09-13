@@ -24,11 +24,18 @@ InstallChargeback="false"
 InstallMySql="false"
 InstallApache="false"
 InstallApacheWithSSL="false"
+PortalMySqlUsr="portal"
+PortalMySqlPassword="stackops"
+PortalMySqlSchema="portal"
+MySqlHost="localhost"
+MySqlPort="3306"
+KeystoneUrl="http://localhost:5000/v2.0"
 MYSQL_ROOT_PASSWORD="stackops"
 OS_USERNAME="admin"
 OS_PASSWORD=""
 OS_TENANT_NAME="admin"
 OS_AUTH_URL="http://api.stackops.net:35357/v2.0"
+OS_AUTH_TOKEN="stackops"
 RABBITMQ_HOST=localhost
 RABBITMQ_PORT=5672
 
@@ -48,16 +55,14 @@ usage() {
 EOT
 }
 
-while getopts ":hvmasc:" opt
+while getopts "hvcmasp" opt
 do
   case $opt in
 
     h|help          )  usage; exit 0   ;;
 
-    v|version       )  echo "$0 -- Version $ScriptVersion"; exit 0   ;;
-
-    p|portal        )  echo "\nA StackOps Portal will be installed on this server\n"
-                       InstallPortal="true";  ;;
+    v|version       )  echo "$0 -- Version $ScriptVersion"; 
+		       exit 0   ;;
 
     c|chargeback    )  echo "\nA StackOps Chargeback will be installed on this server\n"
                        InstallChargeback="true";  ;;
@@ -71,10 +76,13 @@ do
     s|ssl           )  echo "\nAn Apache server for HTTPS traffic will be installed on this server\n"
                        InstallApacheWithSSL="true";  ;;
 
+    p|portal        )  echo "\nA StackOps Portal will be installed on this server\n"
+                       InstallPortal="true";  ;;
+
     \?              )  echo "\n  Option does not exist : $OPTARG\n"
                        usage; exit 1   ;;
-
   esac
+  echo $opt
 done
 shift $(($OPTIND-1))
 
@@ -318,7 +326,9 @@ DISTRO_NAME_L=$(echo $DISTRO_NAME | tr '[:upper:]' '[:lower:]' | sed 's/[^a-zA-Z
 #   DESCRIPTION:  (DRY) apt-get install with noinput options
 #-------------------------------------------------------------------------------
 __apt_get_noinput() {
+    DEBIAN_FRONTEND=noninteractive
     apt-get install -y -o DPkg::Options::=--force-confold $@
+    DEBIAN_FRONTEND=
 }
 
 __apt_get_update() {
@@ -354,7 +364,22 @@ __is_chargeback_roles() {
     result_activity_admin=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); t = tok['access']['user']['roles']; print any(d['name'] == 'ROLE_ACTIVITY_ADMIN' for d in t) "`
     result_chargeback_admin=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); t = tok['access']['user']['roles']; print any(d['name'] == 'ROLE_CHARGEBACK_ADMIN' for d in t) "`
     set -e
-    [ ! -z "${result}" ] || { echo >&2 `echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['error'];"`; }
+    result="True"
+    if [ "${result_activity}" = "False" ]; then
+        result="ROLE_ACTIVITY does not exist.\n"
+    fi
+    if [ "${result_activity_admin}" = "False" ]; then
+        result="ROLE_ACTIVITY_ADMIN does not exist.\n"
+    fi
+    if [ "${result_accounting}" = "False" ]; then
+        result="ROLE_ACCOUNTING does not exist.\n"
+    fi
+    if [ "${result_chargeback}" = "False" ]; then
+        result="ROLE_CHARGEBACK does not exist.\n"
+    fi
+    if [ "${result_chargeback_admin}" = "False" ]; then
+        result="ROLE_CHARGEBACK_ADMIN does not exist.\n"
+    fi
     echo $result
 }
 
@@ -500,6 +525,12 @@ cp /tmp/ssl.key /etc/ssl/private/sslcert.key
 }
 
 __check_keystone(){
+
+
+echo "GLOBAL OPENSTACK PARAMETERS"
+echo "==========================="
+echo "All StackOps componentes follows the design guidelines of an OpenStack architecture. Please enter below the Public and Admin Authentication URLs of your OpenStack platform. You also need to provide the Authentication Admin token. The installer also needs an admin user with credentials to check the correct configuration of the roles for our components."
+
 exitloop="none"
 while [ "$exitloop" == "none" ]
 do
@@ -507,6 +538,18 @@ do
     read response
     if [ -n "$response" ]; then
         OS_AUTH_URL=$response
+    fi
+
+    echo "Enter the authentication url [${KeystoneUrl}]: "
+    read response
+    if [ -n "$response" ]; then
+        KeystoneUrl=$response
+    fi
+
+    echo "Enter the authentication admin token [$OS_AUTH_TOKEN]: "
+    read response
+    if [ -n "$response" ]; then
+        OS_AUTH_TOKEN=$response
     fi
 
     echo "Enter the username with admin privileges [$OS_USERNAME]: "
@@ -534,13 +577,71 @@ do
     fi
 done
 
+echo "GLOBAL MYSQL PARAMETERS"
+echo "======================="
+echo "The StackOps componentes use MySQL as the default persistent database.  You need to provide the root password of your database installation, no matter if you are using an existing database server. If you are using an existing database server the installer will ask for the host and port."
+if [ "${InstallMySql}" != "true" ]; then
+    echo "Enter the MySQL Host [${MySqlHost}]: "
+    read response
+    if [ -n "$response" ]; then
+        MySqlHost=$response
+    fi
+
+    echo "Enter the MySQL Port [${MySqlPort}]: "
+    read response
+    if [ -n "$response" ]; then
+        MySqlPort=$response
+    fi
+fi
+
+echo "Enter the MySQL ROOT password [$MYSQL_ROOT_PASSWORD]: "
+read response
+if [ -n "$response" ]; then
+    MYSQL_ROOT_PASSWORD=$response
+fi
+
+echo "STACKOPS PORTAL PARAMETERS"
+echo "=========================="
+echo "StackOps Portal needs the username, password and the name of the schema. Please enter the information below:"
+if [ "${InstallPortal}" = "true" ]; then
+   echo "Enter the Portal MySQL user [${PortalMySqlUsr}]: "
+   read response
+   if [ -n "$response" ]; then
+        PortalMySqlUsr=$response
+    fi
+
+    echo "Enter the Portal MySQL password [${PortalMySqlPassword}]: "
+    read response
+    if [ -n "$response" ]; then
+        PortalMySqlPassword=$response
+    fi
+
+    echo "Enter the Portal MySQL Database Schema [${PortalMySqlSchema}]: "
+    read response
+    if [ -n "$response" ]; then
+        PortalMySqlSchema=$response
+    fi
+fi
+
 auth_token=`__get_auth_token`
 is_portal_admin=`__is_portal_admin $auth_token`
+is_chargeback_roles=`__is_chargeback_roles $auth_token`
 
-if [ "${is_portal_admin}" != "True" ] ; then
-    echo " * ERROR: The admin user does not have the role ROLE_PORTAL_ADMIN. Add this role to the admin and re-run the script."
-    exit 1
+if [ "${InstallPortal}" = "true" ]; then
+    if [ "${is_portal_admin}" != "True" ] ; then
+        echo " * ERROR: The admin user does not have the role ROLE_PORTAL_ADMIN. Add this role to the admin and re-run the script."
+        exit 1
+    fi
 fi
+
+if [ "${InstallChargeback}" = "true" ]; then
+    if [ "${is_chargeback_roles}" != "True" ] ; then
+        echo " * ERROR: The admin user does not have one of these roles: ROLE_ACTIVITY, ROLE_ACCOUNTING, ROLE_CHARGEBACK, ROLE_ACTIVITY_ADMIN, ROLE_CHARGEBACK_ADMIN. Add all these roles to the admin and re-run the script."
+	echo ${is_chargeback_roles}
+        exit 1
+    fi
+fi
+
 #echo $OS_USERNAME
 #echo $OS_PASSWORD
 #echo $OS_TENANT_NAME
@@ -552,37 +653,55 @@ fi
 __check_keystone
 
 install_ubuntu_1404() {
-    __configure_apt_repos "havana"
+    __configure_apt_repos "havana-dev"
     __check_command "curl"
     if [ "${InstallMySql}" = "true" ]; then
+	echo "* Installing MySQL server...\n"
         echo mysql-server mysql-server/root_password password $MYSQL_ROOT_PASSWORD | debconf-set-selections
         echo mysql-server mysql-server/root_password_again password $MYSQL_ROOT_PASSWORD | debconf-set-selections
         echo mysql-server mysql-server/start_on_boot boolean true | debconf-set-selections
         __apt_get_noinput mysql-server
     fi
     if [ "${InstallApache}" = "true" ]; then
+	echo "* Installing Apache server without SSL...\n"
         __apt_get_noinput apache2
 	__configure_apache
 	service apache2 restart
     fi
     if [ "${InstallApacheWithSSL}" = "true" ]; then
+	echo "* Installing Apache server with SSL...\n"
         __apt_get_noinput apache2
         __configure_apache_ssl
         service apache2 restart
     fi
 
     if [ "${InstallPortal}" = "true" ] || [ "${InstallChargeback}" = "true" ]; then
-        __apt_get_noinput mysql-client
+ 	echo "* Installing OpenJDK and Tomcat...\n"
+       __apt_get_noinput mysql-client
         __apt_get_noinput openjdk-7-jdk
         __configure_clinker_key http://static.stackops.net/clinker.cert
         __apt_get_noinput tomcat7
     fi
 
     if [ "${InstallPortal}" = "true" ]; then
+	echo "* Installing StackOps Portal...\n"
+	echo stackops-portal stackops-portal/present-stackops-license boolean true | debconf-set-selections
+	echo stackops-portal stackops-portal/mysql-usr string ${PortalMySqlUsr} | debconf-set-selections
+	echo stackops-portal stackops-portal/mysql-password password ${PortalMySqlPassword} | debconf-set-selections
+	echo stackops-portal stackops-portal/mysql-schema string ${PortalMySqlSchema} | debconf-set-selections
+	echo stackops-portal stackops-portal/mysql-host string ${MySqlHost} | debconf-set-selections
+	echo stackops-portal stackops-portal/mysql-port string ${MySqlPort} | debconf-set-selections
+	echo stackops-portal stackops-portal/mysql-admin-password password ${MYSQL_ROOT_PASSWORD} | debconf-set-selections
+	echo stackops-portal stackops-portal/mysql-install boolean true | debconf-set-selections
+        echo stackops-portal stackops-portal/mysql-purgedb boolean false | debconf-set-selections
+	echo stackops-portal stackops-portal/keystone-url string ${KeystoneUrl} | debconf-set-selections
+	echo stackops-portal stackops-portal/keystone-admin-url string ${OS_AUTH_URL} | debconf-set-selections
+	echo stackops-portal stackops-portal/keystone-admin-token password ${OS_AUTH_TOKEN} | debconf-set-selections
         __apt_get_noinput stackops-portal
     fi
 
     if [ "${InstallChargeback}" = "true" ]; then
+	echo "* Installing StackOps Chargeback...\n"
         __apt_get_noinput stackops-activity
         __apt_get_noinput stackops-chargeback
     fi
