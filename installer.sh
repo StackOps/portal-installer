@@ -27,6 +27,14 @@ InstallApacheWithSSL="false"
 PortalMySqlUsr="portal"
 PortalMySqlPassword="stackops"
 PortalMySqlSchema="portal"
+ActivityMySqlUsr="activity"
+ActivityMySqlPassword="stackops"
+ActivityMySqlSchema="activity"
+ChargebackMySqlUsr="chargeback"
+ChargebackMySqlPassword="stackops"
+ChargebackMySqlSchema="chargeback"
+ChargebackKeystoneUsr="chargeback"
+ChargebackKeystonePassword="stackops"
 MySqlHost="localhost"
 MySqlPort="3306"
 KeystoneUrl="http://localhost:5000/v2.0"
@@ -38,6 +46,8 @@ OS_AUTH_URL="http://api.stackops.net:35357/v2.0"
 OS_AUTH_TOKEN="stackops"
 RABBITMQ_HOST=localhost
 RABBITMQ_PORT=5672
+RABBITMQ_USR=guest
+RABBITMQ_PASSWORD=guest
 
 usage() {
     cat << EOT
@@ -623,6 +633,83 @@ if [ "${InstallPortal}" = "true" ]; then
     fi
 fi
 
+echo "STACKOPS CHARGEBACK PARAMETERS"
+echo "=========================="
+echo "StackOps Chargeback needs an schema for data logging and another for rating processing. The install will ask for both username, password and the name of the schema. The installer will ask for the AQMP host and port plus the username and password. Finally, you need to enter the username and password of the account created for the component in keystone. Please enter the information below:"
+if [ "${InstallChargeback}" = "true" ]; then
+    echo "Enter the Activity MySQL user [${ActivityMySqlUsr}]: "
+    read response
+    if [ -n "$response" ]; then
+        ActivityMySqlUsr=$response
+    fi
+
+    echo "Enter the Activity MySQL password [${ActivityMySqlPassword}]: "
+    read response
+    if [ -n "$response" ]; then
+        ActivityMySqlPassword=$response
+    fi
+
+    echo "Enter the Activity MySQL Database Schema [${ActivityMySqlSchema}]: "
+    read response
+    if [ -n "$response" ]; then
+        ActivityMySqlSchema=$response
+    fi
+
+    echo "Enter the Chargeback MySQL user [${ChargebackMySqlUsr}]: "
+    read response
+    if [ -n "$response" ]; then
+        ChargebackMySqlUsr=$response
+    fi
+
+    echo "Enter the Chargeback MySQL password [${ChargebackMySqlPassword}]: "
+    read response
+    if [ -n "$response" ]; then
+        ChargebackMySqlPassword=$response
+    fi
+
+    echo "Enter the Chargeback MySQL Database Schema [${ChargebackMySqlSchema}]: "
+    read response
+    if [ -n "$response" ]; then
+        ChargebackMySqlSchema=$response
+    fi
+
+    echo "Enter the Chargeback Keystone user [${ChargebackKeystoneUsr}]: "
+    read response
+    if [ -n "$response" ]; then
+        ChargebacKeystoneUsr=$response
+    fi
+
+    echo "Enter the Chargeback Keystone password [${ChargebackKeystonePassword}]: "
+    read response
+    if [ -n "$response" ]; then
+        ChargebackKeystonePassword=$response
+    fi
+
+    echo "Enter the AQMP Host [${RABBITMQ_HOST}]: "
+    read response
+    if [ -n "$response" ]; then
+        RABBITMQ_HOST=$response
+    fi
+
+    echo "Enter the AQMP Port [${RABBITMQ_PORT}]: "
+    read response
+    if [ -n "$response" ]; then
+        RABBITMQ_PORT=$response
+    fi
+
+    echo "Enter the AQMP username [$RABBITMQ_USR]: "
+    read response
+    if [ -n "$response" ]; then
+        RABBITMQ_USR=$response
+    fi
+
+    echo "Enter the AQMP password [$RABBITMQ_PASSWORD]: "
+    read response
+    if [ -n "$response" ]; then
+        RABBITMQ_PASSWORD=$response
+    fi
+fi
+
 auth_token=`__get_auth_token`
 is_portal_admin=`__is_portal_admin $auth_token`
 is_chargeback_roles=`__is_chargeback_roles $auth_token`
@@ -702,6 +789,37 @@ install_ubuntu_1404() {
 
     if [ "${InstallChargeback}" = "true" ]; then
 	echo "* Installing StackOps Chargeback...\n"
+        echo stackops-activity stackops-activity/present-stackops-license boolean true | debconf-set-selections
+        echo stackops-activity stackops-activity/mysql-usr string ${ActivityMySqlUsr} | debconf-set-selections
+        echo stackops-activity stackops-activity/mysql-password password ${ActivityMySqlPassword} | debconf-set-selections
+        echo stackops-activity stackops-activity/mysql-schema string ${ActivityMySqlSchema} | debconf-set-selections
+        echo stackops-activity stackops-activity/mysql-host string ${MySqlHost} | debconf-set-selections
+        echo stackops-activity stackops-activity/mysql-port string ${MySqlPort} | debconf-set-selections
+        echo stackops-activity stackops-activity/mysql-admin-password password ${MYSQL_ROOT_PASSWORD} | debconf-set-selections
+        echo stackops-activity stackops-activity/mysql-install boolean true | debconf-set-selections
+        echo stackops-activity stackops-activity/mysql-purgedb boolean false | debconf-set-selections
+        echo stackops-activity stackops-activity/keystone-url string ${OS_AUTH_URL} | debconf-set-selections
+        echo stackops-activity stackops-activity/keystone-admin-token password ${OS_AUTH_TOKEN} | debconf-set-selections
+        echo stackops-activity stackops-activity/keystone-usr string ${ChargebackKeystoneUsr} | debconf-set-selections
+        echo stackops-activity stackops-activity/keystone-password password ${ChargebackKeystonePassword} | debconf-set-selections
+        echo stackops-activity stackops-activity/rabbit-usr string ${RABBITMQ_USR} | debconf-set-selections
+        echo stackops-activity stackops-activity/rabbit-password password ${RABBITMQ_PASSWORD} | debconf-set-selections
+        echo stackops-activity stackops-activity/rabbit-host string ${RABBITMQ_HOST} | debconf-set-selections
+        echo stackops-activity stackops-activity/rabbit-port string ${RABBITMQ_PORT} | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/present-stackops-license boolean true | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/mysql-usr string ${ChargebackMySqlUsr} | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/mysql-password password ${ChargebackMySqlPassword} | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/mysql-schema string ${ChargebackMySqlSchema} | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/mysql-activity-schema string ${ActivityMySqlSchema} | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/mysql-host string ${MySqlHost} | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/mysql-port string ${MySqlPort} | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/mysql-admin-password password ${MYSQL_ROOT_PASSWORD} | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/mysql-install boolean true | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/mysql-purgedb boolean false | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/keystone-url string ${OS_AUTH_URL} | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/keystone-admin-token password ${OS_AUTH_TOKEN} | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/keystone-usr string ${ChargebackKeystoneUsr} | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/keystone-password password ${ChargebackKeystonePassword} | debconf-set-selections
         __apt_get_noinput stackops-activity
         __apt_get_noinput stackops-chargeback
     fi
