@@ -47,6 +47,12 @@ create_role()
     echo "`$KEYSTONE_CMD role-create --name=$1 | grep id | awk '/ | / { print $4 }' | head -n 1`"
 }
 
+# Create role
+create_user()
+{
+    echo "`$KEYSTONE_CMD user-create --name $1 --tenant $2 --pass $3 --enabled true | grep id | awk '/ | / { print $4 }' | head -n 1`"
+}
+
 # Get the user Id
 get_user_id()
 {
@@ -65,6 +71,10 @@ create_service()
     $KEYSTONE_CMD endpoint-create --region $4 --service-id $service_id --publicurl "$5" --adminurl "$6" --internalurl "$7"
 }
 
+get_service_id()
+{
+   echo "`$KEYSTONE_CMD service-get $1 | grep id | awk '/ id / { print $4 }' `"
+}
 
 # Get auth token
 get_auth_token()
@@ -88,7 +98,8 @@ ADMIN_TENANT_ID=`get_tenant_id admin`
 if [ ! -z "${ROLE_ADMIN}" ]; then
     echo "ROLE_ADMIN_ID: $ROLE_ADMIN"
 else
-    echo "admin role does not exists"
+    echo "admin role does not exists. There is something wrong in your OpenStack installation."
+    exit  1
 fi
 
 if [ ! -z "${ROLE_PORTAL_ADMIN}" ]; then
@@ -158,6 +169,44 @@ OK=`bind_user_role_tenant $USER_ADMIN_ID $ROLE_ACTIVITY_ADMIN $ADMIN_TENANT_ID`
 OK=`bind_user_role_tenant $USER_ADMIN_ID $ROLE_CHARGEBACK $ADMIN_TENANT_ID`
 OK=`bind_user_role_tenant $USER_ADMIN_ID $ROLE_CHARGEBACK_ADMIN $ADMIN_TENANT_ID`
 
-create_service activity activity "activity" RegionOne "http://localhost:8080/activity" "" "http://localhost:8080/activity"
-create_service activity activity "accounting" RegionOne "http://localhost:8080/accounting" "" "http://localhost:8080/accounting"
-create_service activity activity "chargeback" RegionOne "http://localhost:8080/chargeback" "" "http://localhost:8080/chargeback"
+OK=`get_service_id "activity"`
+if [ "${OK}" != "" ]; then
+    echo "Activity service already exists."
+else
+    create_service activity activity "activity" RegionOne "http://localhost:8080/activity" "" "http://localhost:8080/activity"
+    echo "Activity service created."
+fi
+
+OK=`get_service_id "accounting"`
+if [ "${OK}" != "" ]; then
+    echo "Accounting service already exists."
+else
+    create_service accounting accounting "accounting" RegionOne "http://localhost:8080/accounting" "" "http://localhost:8080/accounting"
+    echo "Accounting service created."
+fi
+
+OK=`get_service_id "chargeback"`
+if [ "${OK}" != "" ]; then
+    echo "Chargeback service already exists."
+else
+    create_service chargeback chargeback "chargeback" RegionOne "http://localhost:8080/chargeback" "" "http://localhost:8080/chargeback"
+    echo "Chargeback service created."
+fi
+
+SERVICE_TENANT_ID=`get_tenant_id service`
+if [ "${SERVICE_TENANT_ID}" != "" ]; then
+    echo "'service' tenant exists. Everything is ok."
+else
+    echo "'service' tenant does not exists. There is something wrong in your OpenStack installation. Exiting."
+    exit 1
+fi
+
+USER_CHARGEBACK_ID=`get_user_id chargeback`
+if [ "${USER_CHARGEBACK_ID}" != "" ]; then
+    echo "'chargeback' already exists."
+else
+    create_user chargeback service $2
+    echo "'chargeback' user created."
+fi
+
+OK=`bind_user_role_tenant $USER_CHARGEBACK_ID $ROLE_ADMIN $SERVICE_TENANT_ID`
