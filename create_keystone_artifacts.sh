@@ -181,7 +181,7 @@ OK=`get_service_id "accounting"`
 if [ "${OK}" != "" ]; then
     echo "Accounting service already exists."
 else
-    create_service accounting accounting "accounting" RegionOne "http://localhost:8080/accounting" "" "http://localhost:8080/accounting"
+    create_service accounting accounting "accounting" RegionOne "http://localhost:8080/activity" "" "http://localhost:8080/activity"
     echo "Accounting service created."
 fi
 
@@ -205,7 +205,7 @@ USER_CHARGEBACK_ID=`get_user_id chargeback`
 if [ "${USER_CHARGEBACK_ID}" != "" ]; then
     echo "'chargeback' already exists."
 else
-    create_user chargeback service $2
+    USER_CHARGEBACK_ID=`create_user chargeback service $2`
     echo "'chargeback' user created."
 fi
 
