@@ -49,6 +49,8 @@ RABBITMQ_PORT=5672
 RABBITMQ_USR=guest
 RABBITMQ_PASSWORD=guest
 
+KEYSTONE_CMD="keystone --os-auth-url $OS_AUTH_URL --os-username $OS_USERNAME --os-password $OS_PASSWORD --os-tenant-name $OS_TENANT_NAME --insecure"
+
 usage() {
     cat << EOT
 
@@ -534,6 +536,192 @@ cp /tmp/ssl.crt /etc/ssl/certs/sslcert.crt
 cp /tmp/ssl.key /etc/ssl/private/sslcert.key
 }
 
+# Create role
+__create_role()
+{
+    echo "`$KEYSTONE_CMD role-create --name=$1 | grep id | awk '/ | / { print $4 }' | head -n 1`"
+}
+
+# Get the role Id
+__get_role_id()
+{
+    echo "`$KEYSTONE_CMD role-list | grep $1 | awk '/ | / { print $2 }' | head -n 1`"
+}
+
+# Create role
+__create_user()
+{
+    echo "`$KEYSTONE_CMD user-create --name $1 --tenant $2 --pass $3 --enabled true | grep id | awk '/ | / { print $4 }' | head -n 1`"
+}
+
+# Get the user Id
+__get_user_id()
+{
+    echo "`$KEYSTONE_CMD user-list | grep $1 | awk '/ | / { print $2 }' | head -n 1`"
+}
+
+# Bind user to role with tenant
+__bind_user_role_tenant()
+{
+    echo "`$KEYSTONE_CMD user-role-add --user-id $1 --role-id $2 --tenant-id $3`"
+}
+
+__create_service()
+{
+    service_id=`$KEYSTONE_CMD service-create --name=$1 --type=$2 --description="$3" | awk '/ id / { print $4 }' `
+    $KEYSTONE_CMD endpoint-create --region $4 --service-id $service_id --publicurl "$5" --adminurl "$6" --internalurl "$7"
+}
+
+__get_service_id()
+{
+   echo "`$KEYSTONE_CMD service-get $1 | grep id | awk '/ id / { print $4 }' `"
+}
+
+# Get the tenant Id
+__get_tenant_id()
+{
+    echo "`$KEYSTONE_CMD tenant-list | grep "$1" | awk '/ | / { print $2 }' | head -n 1`"
+}
+
+__configure_portal_keystone() {
+
+ROLE_PORTAL_ADMIN=`__get_role_id ROLE_PORTAL_ADMIN`
+ROLE_PORTAL_USER=`__get_role_id ROLE_PORTAL_USER`
+
+USER_ADMIN_ID=`__get_user_id admin`
+ADMIN_TENANT_ID=`__get_tenant_id admin`
+
+if [ ! -z "${ROLE_PORTAL_ADMIN}" ]; then
+    echo "ROLE_PORTAL_ADMIN ID: $ROLE_PORTAL_ADMIN"
+else
+    echo "ROLE_PORTAL_ADMIN role does not exists. Creating."
+    ROLE_PORTAL_ADMIN=`__create_role ROLE_PORTAL_ADMIN`
+    echo "ROLE_PORTAL_ADMIN ID: $ROLE_PORTAL_ADMIN"
+fi
+
+if [ ! -z "${ROLE_PORTAL_USER}" ]; then
+    echo "ROLE_PORTAL_USER ID: $ROLE_PORTAL_USER"
+else
+    echo "ROLE_PORTAL_USER role does not exists. Creating."
+    ROLE_PORTAL_USER=`__create_role ROLE_PORTAL_USER`
+    echo "ROLE_PORTAL_USER ID: $ROLE_PORTAL_USER"
+fi
+
+OK=`__bind_user_role_tenant $USER_ADMIN_ID $ROLE_PORTAL_ADMIN $ADMIN_TENANT_ID`
+OK=`__bind_user_role_tenant $USER_ADMIN_ID $ROLE_PORTAL_USER $ADMIN_TENANT_ID`
+
+}
+
+__configure_chargeback_keystone() {
+
+ROLE_ADMIN=`__get_role_id admin`
+ROLE_ACCOUNTING=`__get_role_id ROLE_ACCOUNTING`
+ROLE_ACTIVITY=`__get_role_id ROLE_ACTIVITY`
+ROLE_ACTIVITY_ADMIN=`__get_role_id ROLE_ACTIVITY_ADMIN`
+ROLE_CHARGEBACK=`__get_role_id ROLE_CHARGEBACK`
+ROLE_CHARGEBACK_ADMIN=`__get_role_id ROLE_CHARGEBACK_ADMIN`
+
+USER_ADMIN_ID=`__get_user_id admin`
+ADMIN_TENANT_ID=`__get_tenant_id admin`
+
+if [ ! -z "${ROLE_ADMIN}" ]; then
+    echo "ROLE_ADMIN_ID: $ROLE_ADMIN"
+else
+    echo "admin role does not exists. There is something wrong in your OpenStack installation."
+    exit  1
+fi
+
+if [ ! -z "${ROLE_ACCOUNTING}" ]; then
+    echo "ROLE_ACCOUNTING ID: $ROLE_ACCOUNTING"
+else
+       echo "ROLE_ACCOUNTING role does not exists. Creating."
+    ROLE_ACCOUNTING=`__create_role ROLE_ACCOUNTING`
+    echo "ROLE_ACCOUNTING ID: $ROLE_ACCOUNTING"
+fi
+
+if [ ! -z "${ROLE_ACTIVITY}" ]; then
+    echo "ROLE_ACTIVITY ID: $ROLE_ACTIVITY"
+    echo "ROLE_ACTIVITY role does not exists. Creating."
+else
+    ROLE_ACTIVITY=`__create_role ROLE_ACTIVITY`
+    echo "ROLE_ACTIVITY ID: $ROLE_ACTIVITY"
+fi
+
+if [ ! -z "${ROLE_ACTIVITY_ADMIN}" ]; then
+    echo "ROLE_ACTIVITY ID: $ROLE_ACTIVITY_ADMIN"
+else
+    echo "ROLE_ACTIVITY_ADMIN role does not exists. Creating."
+    ROLE_ACTIVITY_ADMIN=`__create_role ROLE_ACTIVITY_ADMIN`
+    echo "ROLE_ACTIVITY_ADMIN ID: $ROLE_ACTIVITY_ADMIN"
+fi
+
+if [ ! -z "${ROLE_CHARGEBACK}" ]; then
+    echo "ROLE_CHARGEBACK ID: $ROLE_CHARGEBACK"
+else
+    echo "ROLE_CHARGEBACK role does not exists. Creating."
+    ROLE_CHARGEBACK=`__create_role ROLE_CHARGEBACK`
+    echo "ROLE_CHARGEBACK ID: $ROLE_CHARGEBACK"
+fi
+
+if [ ! -z "${ROLE_CHARGEBACK_ADMIN}" ]; then
+    echo "ROLE_CHARGEBACK ID: $ROLE_CHARGEBACK_ADMIN"
+else
+    echo "ROLE_CHARGEBACK_ADMIN role does not exists. Creating."
+    ROLE_CHARGEBACK_ADMIN=`__create_role ROLE_CHARGEBACK_ADMIN`
+    echo "ROLE_CHARGEBACK_ADMIN ID: $ROLE_CHARGEBACK_ADMIN"
+fi
+
+OK=`__bind_user_role_tenant $USER_ADMIN_ID $ROLE_ACCOUNTING $ADMIN_TENANT_ID`
+OK=`__bind_user_role_tenant $USER_ADMIN_ID $ROLE_ACTIVITY $ADMIN_TENANT_ID`
+OK=`__bind_user_role_tenant $USER_ADMIN_ID $ROLE_ACTIVITY_ADMIN $ADMIN_TENANT_ID`
+OK=`__bind_user_role_tenant $USER_ADMIN_ID $ROLE_CHARGEBACK $ADMIN_TENANT_ID`
+OK=`__bind_user_role_tenant $USER_ADMIN_ID $ROLE_CHARGEBACK_ADMIN $ADMIN_TENANT_ID`
+
+OK=`__get_service_id "activity"`
+if [ "${OK}" != "" ]; then
+    echo "Activity service already exists."
+else
+    __create_service activity activity "activity" RegionOne "http://localhost:8080/activity" "" "http://localhost:8080/activity"
+    echo "Activity service created."
+fi
+
+OK=`get_service_id "accounting"`
+if [ "${OK}" != "" ]; then
+    echo "Accounting service already exists."
+else
+    __create_service accounting accounting "accounting" RegionOne "http://localhost:8080/activity" "" "http://localhost:8080/activity"
+    echo "Accounting service created."
+fi
+
+OK=`get_service_id "chargeback"`
+if [ "${OK}" != "" ]; then
+    echo "Chargeback service already exists."
+else
+    __create_service chargeback chargeback "chargeback" RegionOne "http://localhost:8080/chargeback" "" "http://localhost:8080/chargeback"
+    echo "Chargeback service created."
+fi
+
+SERVICE_TENANT_ID=`__get_tenant_id service`
+if [ "${SERVICE_TENANT_ID}" != "" ]; then
+    echo "'service' tenant exists. Everything is ok."
+else
+    echo "'service' tenant does not exists. There is something wrong in your OpenStack installation. Exiting."
+    exit 1
+fi
+
+USER_CHARGEBACK_ID=`__get_user_id chargeback`
+if [ "${USER_CHARGEBACK_ID}" != "" ]; then
+    echo "'chargeback' already exists."
+else
+    USER_CHARGEBACK_ID=`__create_user chargeback service $ChargebackKeystonePassword`
+    echo "'chargeback' user created."
+fi
+
+OK=`__bind_user_role_tenant $USER_CHARGEBACK_ID $ROLE_ADMIN $SERVICE_TENANT_ID`
+
+}
+
+
 __check_keystone(){
 
 
@@ -711,22 +899,17 @@ if [ "${InstallChargeback}" = "true" ]; then
 fi
 
 auth_token=`__get_auth_token`
-is_portal_admin=`__is_portal_admin $auth_token`
-is_chargeback_roles=`__is_chargeback_roles $auth_token`
+#is_portal_admin=`__is_portal_admin $auth_token`
+#is_chargeback_roles=`__is_chargeback_roles $auth_token`
+
+KEYSTONE_CMD="keystone --os-auth-url $OS_AUTH_URL --os-username $OS_USERNAME --os-password $OS_PASSWORD --os-tenant-name $OS_TENANT_NAME --insecure"
 
 if [ "${InstallPortal}" = "true" ]; then
-    if [ "${is_portal_admin}" != "True" ] ; then
-        echo " * ERROR: The admin user does not have the role ROLE_PORTAL_ADMIN. Add this role to the admin and re-run the script."
-        exit 1
-    fi
+    __configure_portal_keystone
 fi
 
 if [ "${InstallChargeback}" = "true" ]; then
-    if [ "${is_chargeback_roles}" != "True" ] ; then
-        echo " * ERROR: The admin user does not have one of these roles: ROLE_ACTIVITY, ROLE_ACCOUNTING, ROLE_CHARGEBACK, ROLE_ACTIVITY_ADMIN, ROLE_CHARGEBACK_ADMIN. Add all these roles to the admin and re-run the script."
-	echo ${is_chargeback_roles}
-        exit 1
-    fi
+    __configure_chargeback_keystone
 fi
 
 #echo $OS_USERNAME

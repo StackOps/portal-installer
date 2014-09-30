@@ -102,22 +102,6 @@ else
     exit  1
 fi
 
-if [ ! -z "${ROLE_PORTAL_ADMIN}" ]; then
-    echo "ROLE_PORTAL_ADMIN ID: $ROLE_PORTAL_ADMIN"
-else
-    echo "ROLE_PORTAL_ADMIN role does not exists. Creating."
-    ROLE_PORTAL_ADMIN=`create_role ROLE_PORTAL_ADMIN`
-    echo "ROLE_PORTAL_ADMIN ID: $ROLE_PORTAL_ADMIN"
-fi
-
-if [ ! -z "${ROLE_PORTAL_USER}" ]; then
-    echo "ROLE_PORTAL_USER ID: $ROLE_PORTAL_USER"
-else
-    echo "ROLE_PORTAL_USER role does not exists. Creating."
-    ROLE_PORTAL_USER=`create_role ROLE_PORTAL_USER`
-    echo "ROLE_PORTAL_USER ID: $ROLE_PORTAL_USER"
-fi
-
 if [ ! -z "${ROLE_ACCOUNTING}" ]; then
     echo "ROLE_ACCOUNTING ID: $ROLE_ACCOUNTING"
 else
