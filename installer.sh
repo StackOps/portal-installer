@@ -566,7 +566,12 @@ __create_role()
     credentials=`curl -s $OS_AUTH_URL/OS-KSADM/roles -X POST -H "X-Auth-Token:$1" -H "Content-type: application/json" -d "{\"role\": {\"name\": \"$2\"}}"`
     result=""
     set +e
-    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['role']['id'] "`
+    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print 'error' in tok "`
+    if [ "$result" == "True" ]; then
+        result=""
+    else
+        result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['role']['id'] "`
+    fi
     set -e
     echo $result
 }
@@ -577,7 +582,12 @@ __create_user()
     credentials=`curl -s $OS_AUTH_URL/users -X POST -H "X-Auth-Token:$1" -H "Content-type: application/json" -d "{\"user\": {\"email\": null, \"password\": \"$4\", \"enabled\": true, \"name\": \"$2\", \"tenantId\": \"$3\"}}"`
     result=""
     set +e
-    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['user']['id'] "`
+    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print 'error' in tok "`
+    if [ "$result" == "True" ]; then
+        result=""
+    else
+        result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['user']['id'] "`
+    fi
     set -e
     echo $result
 }
@@ -750,7 +760,7 @@ __configure_chargeback_keystone(){
 	if [ "${USER_CHARGEBACK_ID}" != "" ]; then
     	echo "'chargeback' already exists."
 	else
-    	USER_CHARGEBACK_ID=`__create_user $auth_token chargeback $SERVICE_TENANT_ID $2`
+    	USER_CHARGEBACK_ID=`__create_user $auth_token chargeback $SERVICE_TENANT_ID ${ChargebackKeystonePassword}`
     	echo "'chargeback' user created."
 	fi
 
