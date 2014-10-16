@@ -48,8 +48,11 @@ RABBITMQ_HOST=localhost
 RABBITMQ_PORT=5672
 RABBITMQ_USR=guest
 RABBITMQ_PASSWORD=guest
-
-KEYSTONE_CMD="keystone --os-auth-url $OS_AUTH_URL --os-username $OS_USERNAME --os-password $OS_PASSWORD --os-tenant-name $OS_TENANT_NAME --insecure"
+ACTIVITY_INTERNAL_URL="http://localhost:8080/activity"
+CHARGEBACK_INTERNAL_URL="http://localhost:8080/chargeback"
+ACTIVITY_PUBLIC_URL="http://localhost:8080/activity"
+CHARGEBACK_PUBLIC_URL="http://localhost:8080/chargeback"
+KEYSTONE_DEFAULT_REGION="RegionOne"
 
 usage() {
     cat << EOT
@@ -536,194 +539,225 @@ cp /tmp/ssl.crt /etc/ssl/certs/sslcert.crt
 cp /tmp/ssl.key /etc/ssl/private/sslcert.key
 }
 
-# Create role
-__create_role()
+# Get the tenant Id
+__get_tenant_id()
 {
-    echo "`$KEYSTONE_CMD role-create --name=$1 | grep id | awk '/ | / { print $4 }' | head -n 1`"
+    credentials=`curl -s $OS_AUTH_URL/tenants -H "X-Auth-Token:$1" -H "Content-type: application/json"`
+    result=""
+    set +e
+    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print [d for d in tok['tenants'] if d['name'] == '$2'][0]['id'] "`
+    set -e
+    echo $result
 }
 
 # Get the role Id
-__get_role_id()
+__get_role_id() {
+    credentials=`curl -s $OS_AUTH_URL/OS-KSADM/roles -H "X-Auth-Token:$1" -H "Content-type: application/json"`
+    result=""
+    set +e
+    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print [d for d in tok['roles'] if d['name'] == '$2'][0]['id'] "`
+    set -e
+    echo $result
+}
+
+# Create role
+__create_role()
 {
-    echo "`$KEYSTONE_CMD role-list | grep $1 | awk '/ | / { print $2 }' | head -n 1`"
+    credentials=`curl -s $OS_AUTH_URL/OS-KSADM/roles -X POST -H "X-Auth-Token:$1" -H "Content-type: application/json" -d "{\"role\": {\"name\": \"$2\"}}"`
+    result=""
+    set +e
+    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['role']['id'] "`
+    set -e
+    echo $result
 }
 
 # Create role
 __create_user()
 {
-    echo "`$KEYSTONE_CMD user-create --name $1 --tenant $2 --pass $3 --enabled true | grep id | awk '/ | / { print $4 }' | head -n 1`"
+    credentials=`curl -s $OS_AUTH_URL/users -X POST -H "X-Auth-Token:$1" -H "Content-type: application/json" -d "{\"user\": {\"email\": null, \"password\": \"$4\", \"enabled\": true, \"name\": \"$2\", \"tenantId\": \"$3\"}}"`
+    result=""
+    set +e
+    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['user']['id'] "`
+    set -e
+    echo $result
 }
 
 # Get the user Id
 __get_user_id()
 {
-    echo "`$KEYSTONE_CMD user-list | grep $1 | awk '/ | / { print $2 }' | head -n 1`"
+    credentials=`curl -s $OS_AUTH_URL/users -H "X-Auth-Token:$1" -H "Content-type: application/json"`
+    result=""
+    set +e
+    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print [d for d in tok['users'] if d['name'] == '$2'][0]['id'] "`
+    set -e
+    echo $result
 }
 
 # Bind user to role with tenant
 __bind_user_role_tenant()
 {
-    echo "`$KEYSTONE_CMD user-role-add --user-id $1 --role-id $2 --tenant-id $3`"
+    credentials=`curl -s $OS_AUTH_URL/tenants/$4/users/$2/roles/OS-KSADM/$3 -X PUT -H "X-Auth-Token:$1" -H "Content-type: application/json"`
+    result=""
+    set +e
+    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print 'error' in tok "`
+    if [ "$result" == "True" ]; then
+        result=""
+    else
+        result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['role']['id'] "`
+    fi
+    set -e
+    echo $result
 }
 
 __create_service()
 {
-    service_id=`$KEYSTONE_CMD service-create --name=$1 --type=$2 --description="$3" | awk '/ id / { print $4 }' `
-    $KEYSTONE_CMD endpoint-create --region $4 --service-id $service_id --publicurl "$5" --adminurl "$6" --internalurl "$7"
+    credentials=`curl -s $OS_AUTH_URL/OS-KSADM/services -X POST -H "X-Auth-Token:$1" -H "Content-type: application/json" -d "{\"OS-KSADM:service\": {\"type\":\"$3\", \"name\": \"$2\", \"description\": \"$4\"}}"`
+    service_id=""
+    set +e
+    service_id=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['OS-KSADM:service']['id'] "`
+    set -e
+    credentials=`curl -s $OS_AUTH_URL/endpoints -X POST -H "X-Auth-Token:$1" -H "Content-type: application/json" -d "{\"endpoint\": {\"adminurl\": \"$7\", \"service_id\": \"$service_id\", \"region\": \"$5\", \"internalurl\": \"$8\", \"publicurl\": \"$6\"}}"`
 }
 
 __get_service_id()
 {
-   echo "`$KEYSTONE_CMD service-get $1 | grep id | awk '/ id / { print $4 }' `"
+    credentials=`curl -s $OS_AUTH_URL/OS-KSADM/services -H "X-Auth-Token:$1" -H "Content-type: application/json"`
+    result=""
+    set +e
+    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print [d for d in tok['OS-KSADM:services'] if d['name'] == '$2'][0]['id'] "`
+    set -e
+    echo $result
 }
 
-# Get the tenant Id
-__get_tenant_id()
-{
-    echo "`$KEYSTONE_CMD tenant-list | grep "$1" | awk '/ | / { print $2 }' | head -n 1`"
+__configure_portal_keystone(){
+	ROLE_PORTAL_ADMIN=`__get_role_id $auth_token ROLE_PORTAL_ADMIN`
+	ROLE_PORTAL_USER=`__get_role_id $auth_token ROLE_PORTAL_USER`
+
+    if [ ! -z "${ROLE_PORTAL_ADMIN}" ]; then
+        echo "ROLE_PORTAL_ADMIN ID: $ROLE_PORTAL_ADMIN"
+    else
+        echo "ROLE_PORTAL_ADMIN role does not exists. Creating."
+        ROLE_PORTAL_ADMIN=`__create_role  $auth_token ROLE_PORTAL_ADMIN`
+        echo "ROLE_PORTAL_ADMIN ID: $ROLE_PORTAL_ADMIN"
+    fi
+
+    if [ ! -z "${ROLE_PORTAL_USER}" ]; then
+        echo "ROLE_PORTAL_USER ID: $ROLE_PORTAL_USER"
+    else
+        echo "ROLE_PORTAL_USER role does not exists. Creating."
+        ROLE_PORTAL_USER=`__create_role  $auth_token ROLE_PORTAL_USER`
+        echo "ROLE_PORTAL_USER ID: $ROLE_PORTAL_USER"
+    fi
+    OK=`__bind_user_role_tenant $auth_token $USER_ADMIN_ID $ROLE_PORTAL_ADMIN $ADMIN_TENANT_ID`
+    OK=`__bind_user_role_tenant $auth_token $USER_ADMIN_ID $ROLE_PORTAL_USER $ADMIN_TENANT_ID`
 }
 
-__configure_portal_keystone() {
+__configure_chargeback_keystone(){
+	ROLE_ACCOUNTING=`__get_role_id $auth_token ROLE_ACCOUNTING`
+	ROLE_ACTIVITY=`__get_role_id $auth_token ROLE_ACTIVITY`
+	ROLE_ACTIVITY_ADMIN=`__get_role_id $auth_token ROLE_ACTIVITY_ADMIN`
+	ROLE_CHARGEBACK=`__get_role_id $auth_token ROLE_CHARGEBACK`
+	ROLE_CHARGEBACK_ADMIN=`__get_role_id $auth_token ROLE_CHARGEBACK_ADMIN`
 
-ROLE_PORTAL_ADMIN=`__get_role_id ROLE_PORTAL_ADMIN`
-ROLE_PORTAL_USER=`__get_role_id ROLE_PORTAL_USER`
+	if [ ! -z "${ROLE_ADMIN}" ]; then
+    	echo "ROLE_ADMIN_ID: $ROLE_ADMIN"
+	else
+    	echo "admin role does not exists. There is something wrong in your OpenStack installation."
+    	exit  1
+	fi
 
-USER_ADMIN_ID=`__get_user_id admin`
-ADMIN_TENANT_ID=`__get_tenant_id admin`
+	if [ ! -z "${ROLE_ACCOUNTING}" ]; then
+    	echo "ROLE_ACCOUNTING ID: $ROLE_ACCOUNTING"
+	else
+    	echo "ROLE_ACCOUNTING role does not exists. Creating."
+    	ROLE_ACCOUNTING=`__create_role  $auth_token ROLE_ACCOUNTING`
+    	echo "ROLE_ACCOUNTING ID: $ROLE_ACCOUNTING"
+	fi
 
-if [ ! -z "${ROLE_PORTAL_ADMIN}" ]; then
-    echo "ROLE_PORTAL_ADMIN ID: $ROLE_PORTAL_ADMIN"
-else
-    echo "ROLE_PORTAL_ADMIN role does not exists. Creating."
-    ROLE_PORTAL_ADMIN=`__create_role ROLE_PORTAL_ADMIN`
-    echo "ROLE_PORTAL_ADMIN ID: $ROLE_PORTAL_ADMIN"
-fi
+	if [ ! -z "${ROLE_ACTIVITY}" ]; then
+    	echo "ROLE_ACTIVITY ID: $ROLE_ACTIVITY"
+	else
+    	echo "ROLE_ACTIVITY role does not exists. Creating."
+    	ROLE_ACTIVITY=`__create_role $auth_token ROLE_ACTIVITY`
+    	echo "ROLE_ACTIVITY ID: $ROLE_ACTIVITY"
+	fi
 
-if [ ! -z "${ROLE_PORTAL_USER}" ]; then
-    echo "ROLE_PORTAL_USER ID: $ROLE_PORTAL_USER"
-else
-    echo "ROLE_PORTAL_USER role does not exists. Creating."
-    ROLE_PORTAL_USER=`__create_role ROLE_PORTAL_USER`
-    echo "ROLE_PORTAL_USER ID: $ROLE_PORTAL_USER"
-fi
+	if [ ! -z "${ROLE_ACTIVITY_ADMIN}" ]; then
+    	echo "ROLE_ACTIVITY ID: $ROLE_ACTIVITY_ADMIN"
+	else
+    	echo "ROLE_ACTIVITY_ADMIN role does not exists. Creating."
+    	ROLE_ACTIVITY_ADMIN=`__create_role  $auth_token ROLE_ACTIVITY_ADMIN`
+    	echo "ROLE_ACTIVITY_ADMIN ID: $ROLE_ACTIVITY_ADMIN"
+	fi
 
-OK=`__bind_user_role_tenant $USER_ADMIN_ID $ROLE_PORTAL_ADMIN $ADMIN_TENANT_ID`
-OK=`__bind_user_role_tenant $USER_ADMIN_ID $ROLE_PORTAL_USER $ADMIN_TENANT_ID`
+	if [ ! -z "${ROLE_CHARGEBACK}" ]; then
+    	echo "ROLE_CHARGEBACK ID: $ROLE_CHARGEBACK"
+	else
+    	echo "ROLE_CHARGEBACK role does not exists. Creating."
+    	ROLE_CHARGEBACK=`__create_role  $auth_token ROLE_CHARGEBACK`
+    	echo "ROLE_CHARGEBACK ID: $ROLE_CHARGEBACK"
+	fi
 
+	if [ ! -z "${ROLE_CHARGEBACK_ADMIN}" ]; then
+    	echo "ROLE_CHARGEBACK ID: $ROLE_CHARGEBACK_ADMIN"
+	else
+    	echo "ROLE_CHARGEBACK_ADMIN role does not exists. Creating."
+    	ROLE_CHARGEBACK_ADMIN=`__create_role  $auth_token ROLE_CHARGEBACK_ADMIN`
+    	echo "ROLE_CHARGEBACK_ADMIN ID: $ROLE_CHARGEBACK_ADMIN"
+	fi
+
+	OK=`__bind_user_role_tenant $auth_token $USER_ADMIN_ID $ROLE_PORTAL_ADMIN $ADMIN_TENANT_ID`
+	OK=`__bind_user_role_tenant $auth_token $USER_ADMIN_ID $ROLE_PORTAL_USER $ADMIN_TENANT_ID`
+	OK=`__bind_user_role_tenant $auth_token $USER_ADMIN_ID $ROLE_ACCOUNTING $ADMIN_TENANT_ID`
+	OK=`__bind_user_role_tenant $auth_token $USER_ADMIN_ID $ROLE_ACTIVITY $ADMIN_TENANT_ID`
+	OK=`__bind_user_role_tenant $auth_token $USER_ADMIN_ID $ROLE_ACTIVITY_ADMIN $ADMIN_TENANT_ID`
+	OK=`__bind_user_role_tenant $auth_token $USER_ADMIN_ID $ROLE_CHARGEBACK $ADMIN_TENANT_ID`
+	OK=`__bind_user_role_tenant $auth_token $USER_ADMIN_ID $ROLE_CHARGEBACK_ADMIN $ADMIN_TENANT_ID`
+
+	OK=`__get_service_id $auth_token "activity"`
+	if [ "${OK}" != "" ]; then
+    	echo "Activity service already exists."
+	else
+    	__create_service $auth_token activity activity "activity" $KEYSTONE_DEFAULT_REGION $ACTIVITY_INTERNAL_URL "" $ACTIVITY_PUBLIC_URL
+    	echo "Activity service created."
+	fi
+
+	OK=`__get_service_id $auth_token "accounting"`
+	if [ "${OK}" != "" ]; then
+    	echo "Accounting service already exists."
+	else
+    	__create_service $auth_token accounting accounting "accounting" $KEYSTONE_DEFAULT_REGION $ACTIVITY_INTERNAL_URL "" $ACTIVITY_PUBLIC_URL
+    	echo "Accounting service created."
+	fi
+
+	OK=`__get_service_id $auth_token "chargeback"`
+	if [ "${OK}" != "" ]; then
+    	echo "Chargeback service already exists."
+	else
+    	__create_service $auth_token chargeback chargeback "chargeback" $KEYSTONE_DEFAULT_REGION $CHARGEBACK_INTERNAL_URL "" $CHARGEBACK_PUBLIC_URL
+    	echo "Chargeback service created."
+	fi
+
+	SERVICE_TENANT_ID=`__get_tenant_id $auth_token service`
+	if [ "${SERVICE_TENANT_ID}" != "" ]; then
+    	echo "'service' tenant exists. Everything is ok."
+	else
+    	echo "'service' tenant does not exists. There is something wrong in your OpenStack installation. Exiting."
+    	exit 1
+	fi
+
+	USER_CHARGEBACK_ID=`__get_user_id $auth_token chargeback`
+	if [ "${USER_CHARGEBACK_ID}" != "" ]; then
+    	echo "'chargeback' already exists."
+	else
+    	USER_CHARGEBACK_ID=`__create_user $auth_token chargeback $SERVICE_TENANT_ID $2`
+    	echo "'chargeback' user created."
+	fi
+
+	OK=`__bind_user_role_tenant $auth_token $USER_CHARGEBACK_ID $ROLE_ADMIN $SERVICE_TENANT_ID`
 }
-
-__configure_chargeback_keystone() {
-
-ROLE_ADMIN=`__get_role_id admin`
-ROLE_ACCOUNTING=`__get_role_id ROLE_ACCOUNTING`
-ROLE_ACTIVITY=`__get_role_id ROLE_ACTIVITY`
-ROLE_ACTIVITY_ADMIN=`__get_role_id ROLE_ACTIVITY_ADMIN`
-ROLE_CHARGEBACK=`__get_role_id ROLE_CHARGEBACK`
-ROLE_CHARGEBACK_ADMIN=`__get_role_id ROLE_CHARGEBACK_ADMIN`
-
-USER_ADMIN_ID=`__get_user_id admin`
-ADMIN_TENANT_ID=`__get_tenant_id admin`
-
-if [ ! -z "${ROLE_ADMIN}" ]; then
-    echo "ROLE_ADMIN_ID: $ROLE_ADMIN"
-else
-    echo "admin role does not exists. There is something wrong in your OpenStack installation."
-    exit  1
-fi
-
-if [ ! -z "${ROLE_ACCOUNTING}" ]; then
-    echo "ROLE_ACCOUNTING ID: $ROLE_ACCOUNTING"
-else
-       echo "ROLE_ACCOUNTING role does not exists. Creating."
-    ROLE_ACCOUNTING=`__create_role ROLE_ACCOUNTING`
-    echo "ROLE_ACCOUNTING ID: $ROLE_ACCOUNTING"
-fi
-
-if [ ! -z "${ROLE_ACTIVITY}" ]; then
-    echo "ROLE_ACTIVITY ID: $ROLE_ACTIVITY"
-    echo "ROLE_ACTIVITY role does not exists. Creating."
-else
-    ROLE_ACTIVITY=`__create_role ROLE_ACTIVITY`
-    echo "ROLE_ACTIVITY ID: $ROLE_ACTIVITY"
-fi
-
-if [ ! -z "${ROLE_ACTIVITY_ADMIN}" ]; then
-    echo "ROLE_ACTIVITY ID: $ROLE_ACTIVITY_ADMIN"
-else
-    echo "ROLE_ACTIVITY_ADMIN role does not exists. Creating."
-    ROLE_ACTIVITY_ADMIN=`__create_role ROLE_ACTIVITY_ADMIN`
-    echo "ROLE_ACTIVITY_ADMIN ID: $ROLE_ACTIVITY_ADMIN"
-fi
-
-if [ ! -z "${ROLE_CHARGEBACK}" ]; then
-    echo "ROLE_CHARGEBACK ID: $ROLE_CHARGEBACK"
-else
-    echo "ROLE_CHARGEBACK role does not exists. Creating."
-    ROLE_CHARGEBACK=`__create_role ROLE_CHARGEBACK`
-    echo "ROLE_CHARGEBACK ID: $ROLE_CHARGEBACK"
-fi
-
-if [ ! -z "${ROLE_CHARGEBACK_ADMIN}" ]; then
-    echo "ROLE_CHARGEBACK ID: $ROLE_CHARGEBACK_ADMIN"
-else
-    echo "ROLE_CHARGEBACK_ADMIN role does not exists. Creating."
-    ROLE_CHARGEBACK_ADMIN=`__create_role ROLE_CHARGEBACK_ADMIN`
-    echo "ROLE_CHARGEBACK_ADMIN ID: $ROLE_CHARGEBACK_ADMIN"
-fi
-
-OK=`__bind_user_role_tenant $USER_ADMIN_ID $ROLE_ACCOUNTING $ADMIN_TENANT_ID`
-OK=`__bind_user_role_tenant $USER_ADMIN_ID $ROLE_ACTIVITY $ADMIN_TENANT_ID`
-OK=`__bind_user_role_tenant $USER_ADMIN_ID $ROLE_ACTIVITY_ADMIN $ADMIN_TENANT_ID`
-OK=`__bind_user_role_tenant $USER_ADMIN_ID $ROLE_CHARGEBACK $ADMIN_TENANT_ID`
-OK=`__bind_user_role_tenant $USER_ADMIN_ID $ROLE_CHARGEBACK_ADMIN $ADMIN_TENANT_ID`
-
-OK=`__get_service_id "activity"`
-if [ "${OK}" != "" ]; then
-    echo "Activity service already exists."
-else
-    __create_service activity activity "activity" RegionOne "http://localhost:8080/activity" "" "http://localhost:8080/activity"
-    echo "Activity service created."
-fi
-
-OK=`get_service_id "accounting"`
-if [ "${OK}" != "" ]; then
-    echo "Accounting service already exists."
-else
-    __create_service accounting accounting "accounting" RegionOne "http://localhost:8080/activity" "" "http://localhost:8080/activity"
-    echo "Accounting service created."
-fi
-
-OK=`get_service_id "chargeback"`
-if [ "${OK}" != "" ]; then
-    echo "Chargeback service already exists."
-else
-    __create_service chargeback chargeback "chargeback" RegionOne "http://localhost:8080/chargeback" "" "http://localhost:8080/chargeback"
-    echo "Chargeback service created."
-fi
-
-SERVICE_TENANT_ID=`__get_tenant_id service`
-if [ "${SERVICE_TENANT_ID}" != "" ]; then
-    echo "'service' tenant exists. Everything is ok."
-else
-    echo "'service' tenant does not exists. There is something wrong in your OpenStack installation. Exiting."
-    exit 1
-fi
-
-USER_CHARGEBACK_ID=`__get_user_id chargeback`
-if [ "${USER_CHARGEBACK_ID}" != "" ]; then
-    echo "'chargeback' already exists."
-else
-    USER_CHARGEBACK_ID=`__create_user chargeback service $ChargebackKeystonePassword`
-    echo "'chargeback' user created."
-fi
-
-OK=`__bind_user_role_tenant $USER_CHARGEBACK_ID $ROLE_ADMIN $SERVICE_TENANT_ID`
-
-}
-
 
 __check_keystone(){
-
 
 echo "GLOBAL OPENSTACK PARAMETERS"
 echo "==========================="
@@ -901,8 +935,16 @@ fi
 auth_token=`__get_auth_token`
 #is_portal_admin=`__is_portal_admin $auth_token`
 #is_chargeback_roles=`__is_chargeback_roles $auth_token`
+ROLE_ADMIN=`__get_role_id $auth_token admin`
+USER_ADMIN_ID=`__get_user_id $auth_token admin`
+ADMIN_TENANT_ID=`__get_tenant_id $auth_token admin`
 
-KEYSTONE_CMD="keystone --os-auth-url $OS_AUTH_URL --os-username $OS_USERNAME --os-password $OS_PASSWORD --os-tenant-name $OS_TENANT_NAME --insecure"
+if [ ! -z "${ROLE_ADMIN}" ]; then
+    echo "ROLE_ADMIN_ID: $ROLE_ADMIN"
+else
+    echo "admin role does not exists. There is something wrong in your OpenStack installation."
+    exit  1
+fi
 
 if [ "${InstallPortal}" = "true" ]; then
     __configure_portal_keystone
@@ -920,6 +962,7 @@ fi
 #echo $is_portal_admin
 
 }
+
 __check_keystone
 
 install_ubuntu_1404() {
