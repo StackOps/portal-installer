@@ -842,10 +842,10 @@ if [ -n "$response" ]; then
     MYSQL_ROOT_PASSWORD=$response
 fi
 
-echo "STACKOPS PORTAL PARAMETERS"
-echo "=========================="
-echo "StackOps Portal needs the username, password and the name of the schema. Please enter the information below:"
 if [ "${InstallPortal}" = "true" ]; then
+   echo "STACKOPS PORTAL PARAMETERS"
+   echo "=========================="
+   echo "StackOps Portal needs the username, password and the name of the schema. Please enter the information below:"
    echo "Enter the Portal MySQL user [${PortalMySqlUsr}]: "
    read response
    if [ -n "$response" ]; then
@@ -865,10 +865,10 @@ if [ "${InstallPortal}" = "true" ]; then
     fi
 fi
 
-echo "STACKOPS CHARGEBACK PARAMETERS"
-echo "=========================="
-echo "StackOps Chargeback needs an schema for data logging and another for rating processing. The install will ask for both username, password and the name of the schema. The installer will ask for the AQMP host and port plus the username and password. Finally, you need to enter the username and password of the account created for the component in keystone. Please enter the information below:"
 if [ "${InstallChargeback}" = "true" ]; then
+    echo "STACKOPS CHARGEBACK PARAMETERS"
+    echo "=========================="
+    echo "StackOps Chargeback needs an schema for data logging and another for rating processing. The install will ask for both username, password and the name of the schema. The installer will ask for the AQMP host and port plus the username and password. Finally, you need to enter the username and password of the account created for the component in keystone. Please enter the information below:"
     echo "Enter the Activity MySQL user [${ActivityMySqlUsr}]: "
     read response
     if [ -n "$response" ]; then
