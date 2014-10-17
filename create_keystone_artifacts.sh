@@ -18,6 +18,8 @@
 set -e
 set -o nounset                              # Treat unset variables as an error
 
+set -x
+
 KEYSTONE_URL=$1
 OS_USERNAME=admin
 OS_PASSWORD=$2
@@ -45,7 +47,7 @@ get_role_id() {
     credentials=`curl -s $OS_AUTH_URL/OS-KSADM/roles -H "X-Auth-Token:$1" -H "Content-type: application/json"`
     result=""
     set +e
-    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print [d for d in tok['roles'] if d['name'] == '$2'][0]['id'] "`
+    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print [d for d in tok['roles'] if d['name'] == '$2'][0]['id']" 2> /dev/null`
     set -e
     echo $result
 }
@@ -127,7 +129,10 @@ get_auth_token()
 }
 
 auth_token=`get_auth_token $OS_TENANT_ADMIN_NAME`
-ROLE_ADMIN=`get_role_id $auth_token admin`
+ROLE_ADMIN=`get_role_id $auth_token adminx`
+
+exit 1
+
 ROLE_ACCOUNTING=`get_role_id $auth_token ROLE_ACCOUNTING`
 ROLE_ACTIVITY=`get_role_id $auth_token ROLE_ACTIVITY`
 ROLE_ACTIVITY_ADMIN=`get_role_id $auth_token ROLE_ACTIVITY_ADMIN`

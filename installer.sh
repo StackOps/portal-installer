@@ -545,7 +545,7 @@ __get_tenant_id()
     credentials=`curl -s $OS_AUTH_URL/tenants -H "X-Auth-Token:$1" -H "Content-type: application/json"`
     result=""
     set +e
-    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print [d for d in tok['tenants'] if d['name'] == '$2'][0]['id'] "`
+    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print [d for d in tok['tenants'] if d['name'] == '$2'][0]['id'] " 2> /dev/null`
     set -e
     echo $result
 }
@@ -555,7 +555,7 @@ __get_role_id() {
     credentials=`curl -s $OS_AUTH_URL/OS-KSADM/roles -H "X-Auth-Token:$1" -H "Content-type: application/json"`
     result=""
     set +e
-    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print [d for d in tok['roles'] if d['name'] == '$2'][0]['id'] "`
+    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print [d for d in tok['roles'] if d['name'] == '$2'][0]['id'] " 2> /dev/null`
     set -e
     echo $result
 }
@@ -598,7 +598,7 @@ __get_user_id()
     credentials=`curl -s $OS_AUTH_URL/users -H "X-Auth-Token:$1" -H "Content-type: application/json"`
     result=""
     set +e
-    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print [d for d in tok['users'] if d['name'] == '$2'][0]['id'] "`
+    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print [d for d in tok['users'] if d['name'] == '$2'][0]['id'] " 2> /dev/null`
     set -e
     echo $result
 }
@@ -634,7 +634,7 @@ __get_service_id()
     credentials=`curl -s $OS_AUTH_URL/OS-KSADM/services -H "X-Auth-Token:$1" -H "Content-type: application/json"`
     result=""
     set +e
-    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print [d for d in tok['OS-KSADM:services'] if d['name'] == '$2'][0]['id'] "`
+    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print [d for d in tok['OS-KSADM:services'] if d['name'] == '$2'][0]['id'] " 2> /dev/null`
     set -e
     echo $result
 }
