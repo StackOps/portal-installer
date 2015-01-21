@@ -1,6 +1,6 @@
 # portal-installer
 
-Script for automated installation of StackOps Portal
+Script for automated installation of StackOps Portal and Chargeback
 
 ## How to use it
 
@@ -17,33 +17,33 @@ StackOps Portal uses MySQL or MariaDB as storage backend. It can install a MySQL
 
 StackOps Portal can install an Apache server to proxy the HTTP or HTTPS requests. It installs a self-generated certificate that you should change if you want to go live with StackOps Portal.
 
-##How to install StackOps Portal and reuse and existing MySQL server installation
+##How to install StackOps Portal and Chargeback and reuse and existing MySQL server installation
 
-`sudo bash -c "source <( curl -L goo.gl/cItQkQ )"`
-
-Once executed, you will have to connect to port 8080 on URI 'portal'. Example: http://yourserver:8080/portal
-
-##How to install StackOps Portal and install your own MySQL server locally
-
-`sudo bash -c "source <( curl -L goo.gl/cItQkQ ) -m"`
+`sudo bash -c "source <( curl -L goo.gl/cItQkQ ) -p -c"`
 
 Once executed, you will have to connect to port 8080 on URI 'portal'. Example: http://yourserver:8080/portal
 
-##How to install StackOps Portal and install your own Apache Proxy for HTTP traffic
+##How to install StackOps Portal and Chargeback and install your own MySQL server locally
 
-`sudo bash -c "source <( curl -L goo.gl/cItQkQ ) -a"`
+`sudo bash -c "source <( curl -L goo.gl/cItQkQ ) -m -p -c"`
+
+Once executed, you will have to connect to port 8080 on URI 'portal'. Example: http://yourserver:8080/portal
+
+##How to install StackOps Portal and Chargeback and install your own Apache Proxy for HTTP traffic
+
+`sudo bash -c "source <( curl -L goo.gl/cItQkQ ) -a -p -c"`
 
 Once executed, you will have to connect to port 80. Example: http://yourserver
 
-##How to install StackOps Portal and install your own Apache Proxy for HTTPS traffic
+##How to install StackOps Portal and Chargeback  and install your own Apache Proxy for HTTPS traffic
 
-`sudo bash -c "source <( curl -L goo.gl/cItQkQ ) -s"`
+`sudo bash -c "source <( curl -L goo.gl/cItQkQ ) -s -p -c"`
 
 Once executed, you will have to connect to port 80 or 443, because it will always redirect to port 443. Example: http://yourserver or https://yourserver
 
-##How to install StackOps Portal and the whole enchilada (Apache HTTS Traffic and local MySQL server)
+##How to install StackOps Portal and Chargeback and Apache HTTS Traffic and local MySQL server (Whole enchilada)
 
-`sudo bash -c "source <( curl -L goo.gl/cItQkQ ) -m -s"`
+`sudo bash -c "source <( curl -L goo.gl/cItQkQ ) -m -s -p -c"`
 
 Once executed, you will have to connect to port 80 or 443, because it will always redirect to port 443. Example: http://yourserver or https://yourserver
 
