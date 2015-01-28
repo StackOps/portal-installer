@@ -976,7 +976,7 @@ fi
 __check_keystone
 
 install_ubuntu_1404() {
-    __configure_apt_repos "icehouse-dev"
+    __configure_apt_repos "icehouse"
     __check_command "curl"
     if [ "${InstallMySql}" = "true" ]; then
 	echo "* Installing MySQL server...\n"
