@@ -1020,6 +1020,8 @@ install_ubuntu_1404() {
 	echo stackops-portal stackops-portal/keystone-url string ${KeystoneUrl} | debconf-set-selections
 	echo stackops-portal stackops-portal/keystone-admin-url string ${OS_AUTH_URL} | debconf-set-selections
 	echo stackops-portal stackops-portal/keystone-admin-token password ${OS_AUTH_TOKEN} | debconf-set-selections
+        echo stackops-portal stackops-portal/keystone-usr string ${OS_USERNAME} | debconf-set-selections
+        echo stackops-portal stackops-portal/keystone-password password ${OS_PASSWORD} | debconf-set-selections
         __apt_get_noinput stackops-portal
     fi
 
