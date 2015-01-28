@@ -19,14 +19,40 @@ set -o nounset                              # Treat unset variables as an error
 ScriptVersion="1.0"
 ScriptName="installer.sh"
 
+InstallPortal="false"
+InstallChargeback="false"
 InstallMySql="false"
 InstallApache="false"
 InstallApacheWithSSL="false"
+PortalMySqlUsr="portal"
+PortalMySqlPassword="stackops"
+PortalMySqlSchema="portal"
+ActivityMySqlUsr="activity"
+ActivityMySqlPassword="stackops"
+ActivityMySqlSchema="activity"
+ChargebackMySqlUsr="chargeback"
+ChargebackMySqlPassword="stackops"
+ChargebackMySqlSchema="chargeback"
+ChargebackKeystoneUsr="chargeback"
+ChargebackKeystonePassword="stackops"
+MySqlHost="localhost"
+MySqlPort="3306"
+KeystoneUrl="http://localhost:5000/v2.0"
 MYSQL_ROOT_PASSWORD="stackops"
 OS_USERNAME="admin"
 OS_PASSWORD=""
 OS_TENANT_NAME="admin"
 OS_AUTH_URL="http://api.stackops.net:35357/v2.0"
+OS_AUTH_TOKEN="stackops"
+RABBITMQ_HOST=localhost
+RABBITMQ_PORT=5672
+RABBITMQ_USR=guest
+RABBITMQ_PASSWORD=guest
+ACTIVITY_INTERNAL_URL="http://localhost:8080/activity"
+CHARGEBACK_INTERNAL_URL="http://localhost:8080/chargeback"
+ACTIVITY_PUBLIC_URL="http://localhost:8080/activity"
+CHARGEBACK_PUBLIC_URL="http://localhost:8080/chargeback"
+KEYSTONE_DEFAULT_REGION="RegionOne"
 
 usage() {
     cat << EOT
@@ -36,19 +62,25 @@ usage() {
   Options:
   -h|help       Display this message
   -v|version    Display script version
+  -c|chargeback	Installs StackOps Chargeback
+  -p|portal	Installs StackOps Portal
   -m|mysql	Installs MySQL server
   -a|apache	Installs Apache server for HTTP traffic
   -s|ssl	Installs Apache server for HTTPS traffic (SSL)
 EOT
 }
 
-while getopts ":hvmasc:" opt
+while getopts "hvcmasp" opt
 do
   case $opt in
 
     h|help          )  usage; exit 0   ;;
 
-    v|version       )  echo "$0 -- Version $ScriptVersion"; exit 0   ;;
+    v|version       )  echo "$0 -- Version $ScriptVersion"; 
+		       exit 0   ;;
+
+    c|chargeback    )  echo "\nA StackOps Chargeback will be installed on this server\n"
+                       InstallChargeback="true";  ;;
 
     m|mysql         )  echo "\n * A MySQL server will be installed on this server\n"
                        InstallMySql="true";  ;;
@@ -59,10 +91,13 @@ do
     s|ssl           )  echo "\n * An Apache server for HTTPS traffic will be installed on this server\n"
                        InstallApacheWithSSL="true";  ;;
 
+    p|portal        )  echo "\nA StackOps Portal will be installed on this server\n"
+                       InstallPortal="true";  ;;
+
     \?              )  echo "\n  Option does not exist : $OPTARG\n"
                        usage; exit 1   ;;
-
   esac
+  echo $opt
 done
 shift $(($OPTIND-1))
 
@@ -306,7 +341,9 @@ DISTRO_NAME_L=$(echo $DISTRO_NAME | tr '[:upper:]' '[:lower:]' | sed 's/[^a-zA-Z
 #   DESCRIPTION:  (DRY) apt-get install with noinput options
 #-------------------------------------------------------------------------------
 __apt_get_noinput() {
+    DEBIAN_FRONTEND=noninteractive
     apt-get install -y -o DPkg::Options::=--force-confold $@
+    DEBIAN_FRONTEND=
 }
 
 __apt_get_update() {
@@ -335,12 +372,31 @@ __is_portal_admin() {
     echo $result
 }
 
-__is_keystone_admin() {
+__is_chargeback_roles() {
+    credentials=`curl -s $OS_AUTH_URL/tokens/$1 -H "X-Auth-Token:$1" -H "Content-type: application/json"`
     set +e
-    credentials=`curl -s $OS_AUTH_URL -H \"Content-type: application/json\"`
-    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['version']['id']=='v2.0'"`
-    [ ! -z "${result}" ] || { echo >&2 `echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['error'];"`; }
+    result_activity=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); t = tok['access']['user']['roles']; print any(d['name'] == 'ROLE_ACTIVITY' for d in t) "`
+    result_accounting=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); t = tok['access']['user']['roles']; print any(d['name'] == 'ROLE_ACCOUNTING' for d in t) "`
+    result_chargeback=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); t = tok['access']['user']['roles']; print any(d['name'] == 'ROLE_CHARGEBACK' for d in t) "`
+    result_activity_admin=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); t = tok['access']['user']['roles']; print any(d['name'] == 'ROLE_ACTIVITY_ADMIN' for d in t) "`
+    result_chargeback_admin=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); t = tok['access']['user']['roles']; print any(d['name'] == 'ROLE_CHARGEBACK_ADMIN' for d in t) "`
     set -e
+    result="True"
+    if [ "${result_activity}" = "False" ]; then
+        result="ROLE_ACTIVITY does not exist.\n"
+    fi
+    if [ "${result_activity_admin}" = "False" ]; then
+        result="ROLE_ACTIVITY_ADMIN does not exist.\n"
+    fi
+    if [ "${result_accounting}" = "False" ]; then
+        result="ROLE_ACCOUNTING does not exist.\n"
+    fi
+    if [ "${result_chargeback}" = "False" ]; then
+        result="ROLE_CHARGEBACK does not exist.\n"
+    fi
+    if [ "${result_chargeback_admin}" = "False" ]; then
+        result="ROLE_CHARGEBACK_ADMIN does not exist.\n"
+    fi
     echo $result
 }
 
@@ -485,25 +541,242 @@ cp /tmp/ssl.crt /etc/ssl/certs/sslcert.crt
 cp /tmp/ssl.key /etc/ssl/private/sslcert.key
 }
 
-__show_instructions(){
-    echo "\n\nWelcome to StackOps Portal assisted installer. This script will guide you through the installation process of StackOps Portal. Before proceeding, let's review the system requirements first:"
-    echo "1) StackOps Portal needs to have access to Keystone Administration endpoint and also needs Keystone token."
-    echo "2) The default installation also needs to have access to all OpenStack and StackOps APIs through the INTERNAL URL. This is mandatory."
-    echo "3) To setup and configure the platform properly, an user with Administrator privileges is needed"
-    echo "4) A special role must be created in your OpenStack Platform: ROLE_PORTAL_ADMIN"
-    echo "5) Add this role to your user with Administrator privileges before continuing"
-    echo "6) StackOps Portal needs a MySQL/MariaDB at runtime. You can install a dedicated database or use an external one."
-    echo "7) You can optionally install an Apache server to proxy all traffic from port 80 or 443 to port 8080 (Tomcat). It's highly recommended for production environments".
-    echo ""
-    echo "And now, please enter the information to access Keystone before proceeding. The script will stop if some of the requirements are not fullfilled."
-    echo ""
+# Get the tenant Id
+__get_tenant_id()
+{
+    credentials=`curl -s $OS_AUTH_URL/tenants -H "X-Auth-Token:$1" -H "Content-type: application/json"`
+    result=""
+    set +e
+    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print [d for d in tok['tenants'] if d['name'] == '$2'][0]['id'] " 2> /dev/null`
+    set -e
+    echo $result
 }
 
-__show_instructions
+# Get the role Id
+__get_role_id() {
+    credentials=`curl -s $OS_AUTH_URL/OS-KSADM/roles -H "X-Auth-Token:$1" -H "Content-type: application/json"`
+    result=""
+    set +e
+    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print [d for d in tok['roles'] if d['name'] == '$2'][0]['id'] " 2> /dev/null`
+    set -e
+    echo $result
+}
+
+# Create role
+__create_role()
+{
+    credentials=`curl -s $OS_AUTH_URL/OS-KSADM/roles -X POST -H "X-Auth-Token:$1" -H "Content-type: application/json" -d "{\"role\": {\"name\": \"$2\"}}"`
+    result=""
+    set +e
+    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print 'error' in tok "`
+    if [ "$result" == "True" ]; then
+        result=""
+    else
+        result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['role']['id'] "`
+    fi
+    set -e
+    echo $result
+}
+
+# Create role
+__create_user()
+{
+    credentials=`curl -s $OS_AUTH_URL/users -X POST -H "X-Auth-Token:$1" -H "Content-type: application/json" -d "{\"user\": {\"email\": null, \"password\": \"$4\", \"enabled\": true, \"name\": \"$2\", \"tenantId\": \"$3\"}}"`
+    result=""
+    set +e
+    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print 'error' in tok "`
+    if [ "$result" == "True" ]; then
+        result=""
+    else
+        result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['user']['id'] "`
+    fi
+    set -e
+    echo $result
+}
+
+# Get the user Id
+__get_user_id()
+{
+    credentials=`curl -s $OS_AUTH_URL/users -H "X-Auth-Token:$1" -H "Content-type: application/json"`
+    result=""
+    set +e
+    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print [d for d in tok['users'] if d['name'] == '$2'][0]['id'] " 2> /dev/null`
+    set -e
+    echo $result
+}
+
+# Bind user to role with tenant
+__bind_user_role_tenant()
+{
+    credentials=`curl -s $OS_AUTH_URL/tenants/$4/users/$2/roles/OS-KSADM/$3 -X PUT -H "X-Auth-Token:$1" -H "Content-type: application/json"`
+    result=""
+    set +e
+    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print 'error' in tok "`
+    if [ "$result" == "True" ]; then
+        result=""
+    else
+        result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['role']['id'] "`
+    fi
+    set -e
+    echo $result
+}
+
+__create_service()
+{
+    credentials=`curl -s $OS_AUTH_URL/OS-KSADM/services -X POST -H "X-Auth-Token:$1" -H "Content-type: application/json" -d "{\"OS-KSADM:service\": {\"type\":\"$3\", \"name\": \"$2\", \"description\": \"$4\"}}"`
+    service_id=""
+    set +e
+    service_id=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['OS-KSADM:service']['id'] "`
+    set -e
+    credentials=`curl -s $OS_AUTH_URL/endpoints -X POST -H "X-Auth-Token:$1" -H "Content-type: application/json" -d "{\"endpoint\": {\"adminurl\": \"$7\", \"service_id\": \"$service_id\", \"region\": \"$5\", \"internalurl\": \"$8\", \"publicurl\": \"$6\"}}"`
+}
+
+__get_service_id()
+{
+    credentials=`curl -s $OS_AUTH_URL/OS-KSADM/services -H "X-Auth-Token:$1" -H "Content-type: application/json"`
+    result=""
+    set +e
+    result=`echo $credentials | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print [d for d in tok['OS-KSADM:services'] if d['name'] == '$2'][0]['id'] " 2> /dev/null`
+    set -e
+    echo $result
+}
+
+__configure_portal_keystone(){
+	ROLE_PORTAL_ADMIN=`__get_role_id $auth_token ROLE_PORTAL_ADMIN`
+	ROLE_PORTAL_USER=`__get_role_id $auth_token ROLE_PORTAL_USER`
+
+    if [ ! -z "${ROLE_PORTAL_ADMIN}" ]; then
+        echo "ROLE_PORTAL_ADMIN ID: $ROLE_PORTAL_ADMIN"
+    else
+        echo "ROLE_PORTAL_ADMIN role does not exists. Creating."
+        ROLE_PORTAL_ADMIN=`__create_role  $auth_token ROLE_PORTAL_ADMIN`
+        echo "ROLE_PORTAL_ADMIN ID: $ROLE_PORTAL_ADMIN"
+    fi
+
+    if [ ! -z "${ROLE_PORTAL_USER}" ]; then
+        echo "ROLE_PORTAL_USER ID: $ROLE_PORTAL_USER"
+    else
+        echo "ROLE_PORTAL_USER role does not exists. Creating."
+        ROLE_PORTAL_USER=`__create_role  $auth_token ROLE_PORTAL_USER`
+        echo "ROLE_PORTAL_USER ID: $ROLE_PORTAL_USER"
+    fi
+    OK=`__bind_user_role_tenant $auth_token $USER_ADMIN_ID $ROLE_PORTAL_ADMIN $ADMIN_TENANT_ID`
+    OK=`__bind_user_role_tenant $auth_token $USER_ADMIN_ID $ROLE_PORTAL_USER $ADMIN_TENANT_ID`
+}
+
+__configure_chargeback_keystone(){
+	ROLE_ACCOUNTING=`__get_role_id $auth_token ROLE_ACCOUNTING`
+	ROLE_ACTIVITY=`__get_role_id $auth_token ROLE_ACTIVITY`
+	ROLE_ACTIVITY_ADMIN=`__get_role_id $auth_token ROLE_ACTIVITY_ADMIN`
+	ROLE_CHARGEBACK=`__get_role_id $auth_token ROLE_CHARGEBACK`
+	ROLE_CHARGEBACK_ADMIN=`__get_role_id $auth_token ROLE_CHARGEBACK_ADMIN`
+
+	if [ ! -z "${ROLE_ADMIN}" ]; then
+    	echo "ROLE_ADMIN_ID: $ROLE_ADMIN"
+	else
+    	echo "admin role does not exists. There is something wrong in your OpenStack installation."
+    	exit  1
+	fi
+
+	if [ ! -z "${ROLE_ACCOUNTING}" ]; then
+    	echo "ROLE_ACCOUNTING ID: $ROLE_ACCOUNTING"
+	else
+    	echo "ROLE_ACCOUNTING role does not exists. Creating."
+    	ROLE_ACCOUNTING=`__create_role  $auth_token ROLE_ACCOUNTING`
+    	echo "ROLE_ACCOUNTING ID: $ROLE_ACCOUNTING"
+	fi
+
+	if [ ! -z "${ROLE_ACTIVITY}" ]; then
+    	echo "ROLE_ACTIVITY ID: $ROLE_ACTIVITY"
+	else
+    	echo "ROLE_ACTIVITY role does not exists. Creating."
+    	ROLE_ACTIVITY=`__create_role $auth_token ROLE_ACTIVITY`
+    	echo "ROLE_ACTIVITY ID: $ROLE_ACTIVITY"
+	fi
+
+	if [ ! -z "${ROLE_ACTIVITY_ADMIN}" ]; then
+    	echo "ROLE_ACTIVITY ID: $ROLE_ACTIVITY_ADMIN"
+	else
+    	echo "ROLE_ACTIVITY_ADMIN role does not exists. Creating."
+    	ROLE_ACTIVITY_ADMIN=`__create_role  $auth_token ROLE_ACTIVITY_ADMIN`
+    	echo "ROLE_ACTIVITY_ADMIN ID: $ROLE_ACTIVITY_ADMIN"
+	fi
+
+	if [ ! -z "${ROLE_CHARGEBACK}" ]; then
+    	echo "ROLE_CHARGEBACK ID: $ROLE_CHARGEBACK"
+	else
+    	echo "ROLE_CHARGEBACK role does not exists. Creating."
+    	ROLE_CHARGEBACK=`__create_role  $auth_token ROLE_CHARGEBACK`
+    	echo "ROLE_CHARGEBACK ID: $ROLE_CHARGEBACK"
+	fi
+
+	if [ ! -z "${ROLE_CHARGEBACK_ADMIN}" ]; then
+    	echo "ROLE_CHARGEBACK ID: $ROLE_CHARGEBACK_ADMIN"
+	else
+    	echo "ROLE_CHARGEBACK_ADMIN role does not exists. Creating."
+    	ROLE_CHARGEBACK_ADMIN=`__create_role  $auth_token ROLE_CHARGEBACK_ADMIN`
+    	echo "ROLE_CHARGEBACK_ADMIN ID: $ROLE_CHARGEBACK_ADMIN"
+	fi
+
+	OK=`__bind_user_role_tenant $auth_token $USER_ADMIN_ID $ROLE_PORTAL_ADMIN $ADMIN_TENANT_ID`
+	OK=`__bind_user_role_tenant $auth_token $USER_ADMIN_ID $ROLE_PORTAL_USER $ADMIN_TENANT_ID`
+	OK=`__bind_user_role_tenant $auth_token $USER_ADMIN_ID $ROLE_ACCOUNTING $ADMIN_TENANT_ID`
+	OK=`__bind_user_role_tenant $auth_token $USER_ADMIN_ID $ROLE_ACTIVITY $ADMIN_TENANT_ID`
+	OK=`__bind_user_role_tenant $auth_token $USER_ADMIN_ID $ROLE_ACTIVITY_ADMIN $ADMIN_TENANT_ID`
+	OK=`__bind_user_role_tenant $auth_token $USER_ADMIN_ID $ROLE_CHARGEBACK $ADMIN_TENANT_ID`
+	OK=`__bind_user_role_tenant $auth_token $USER_ADMIN_ID $ROLE_CHARGEBACK_ADMIN $ADMIN_TENANT_ID`
+
+	OK=`__get_service_id $auth_token "activity"`
+	if [ "${OK}" != "" ]; then
+    	echo "Activity service already exists."
+	else
+    	__create_service $auth_token activity activity "activity" $KEYSTONE_DEFAULT_REGION $ACTIVITY_INTERNAL_URL "" $ACTIVITY_PUBLIC_URL
+    	echo "Activity service created."
+	fi
+
+	OK=`__get_service_id $auth_token "accounting"`
+	if [ "${OK}" != "" ]; then
+    	echo "Accounting service already exists."
+	else
+    	__create_service $auth_token accounting accounting "accounting" $KEYSTONE_DEFAULT_REGION $ACTIVITY_INTERNAL_URL "" $ACTIVITY_PUBLIC_URL
+    	echo "Accounting service created."
+	fi
+
+	OK=`__get_service_id $auth_token "chargeback"`
+	if [ "${OK}" != "" ]; then
+    	echo "Chargeback service already exists."
+	else
+    	__create_service $auth_token chargeback chargeback "chargeback" $KEYSTONE_DEFAULT_REGION $CHARGEBACK_INTERNAL_URL "" $CHARGEBACK_PUBLIC_URL
+    	echo "Chargeback service created."
+	fi
+
+	SERVICE_TENANT_ID=`__get_tenant_id $auth_token service`
+	if [ "${SERVICE_TENANT_ID}" != "" ]; then
+    	echo "'service' tenant exists. Everything is ok."
+	else
+    	echo "'service' tenant does not exists. There is something wrong in your OpenStack installation. Exiting."
+    	exit 1
+	fi
+
+	USER_CHARGEBACK_ID=`__get_user_id $auth_token chargeback`
+	if [ "${USER_CHARGEBACK_ID}" != "" ]; then
+    	echo "'chargeback' already exists."
+	else
+    	USER_CHARGEBACK_ID=`__create_user $auth_token chargeback $SERVICE_TENANT_ID ${ChargebackKeystonePassword}`
+    	echo "'chargeback' user created."
+	fi
+
+	OK=`__bind_user_role_tenant $auth_token $USER_CHARGEBACK_ID $ROLE_ADMIN $SERVICE_TENANT_ID`
+}
 
 __check_keystone(){
-exitloop=0
-while [ $exitloop -eq 0 ];
+
+echo "GLOBAL OPENSTACK PARAMETERS"
+echo "==========================="
+echo "All StackOps componentes follows the design guidelines of an OpenStack architecture. Please enter below the Public and Admin Authentication URLs of your OpenStack platform. You also need to provide the Authentication Admin token. The installer also needs an admin user with credentials to check the correct configuration of the roles for our components."
+
+exitloop="none"
+while [ "$exitloop" == "none" ]
 do
     echo -n "Enter the authentication admin url [$OS_AUTH_URL]: "
     read response
@@ -511,7 +784,19 @@ do
         OS_AUTH_URL=$response
     fi
 
-    echo -n "Enter the username with admin privileges [$OS_USERNAME]: "
+    echo "Enter the authentication url [${KeystoneUrl}]: "
+    read response
+    if [ -n "$response" ]; then
+        KeystoneUrl=$response
+    fi
+
+    echo "Enter the authentication admin token [$OS_AUTH_TOKEN]: "
+    read response
+    if [ -n "$response" ]; then
+        OS_AUTH_TOKEN=$response
+    fi
+
+    echo "Enter the username with admin privileges [$OS_USERNAME]: "
     read response
     if [ -n "$response" ]; then
         OS_USERNAME=$response
@@ -538,32 +823,160 @@ do
     fi
 done
 
-echo " * Admin user Information:"
-echo "     URL:          ${OS_AUTH_URL}"
-echo "     Username:     ${OS_USERNAME}"
-echo "     Password:     ${OS_PASSWORD}"
-echo "     Tenant:       ${OS_TENANT_NAME}"
+echo "GLOBAL MYSQL PARAMETERS"
+echo "======================="
+echo "The StackOps componentes use MySQL as the default persistent database.  You need to provide the root password of your database installation, no matter if you are using an existing database server. If you are using an existing database server the installer will ask for the host and port."
+if [ "${InstallMySql}" != "true" ]; then
+    echo "Enter the MySQL Host [${MySqlHost}]: "
+    read response
+    if [ -n "$response" ]; then
+        MySqlHost=$response
+    fi
 
-is_keystone_admin=`__is_keystone_admin`
-if [ "${is_keystone_admin}" != "True" ] ; then
-    echo " * ERROR: Cannot verify keystone admin url for version v2.0. Check the url is reachable and points to v2.0 API. Then re-run the script."
-    exit 1
+    echo "Enter the MySQL Port [${MySqlPort}]: "
+    read response
+    if [ -n "$response" ]; then
+        MySqlPort=$response
+    fi
 fi
+
+echo "Enter the MySQL ROOT password [$MYSQL_ROOT_PASSWORD]: "
+read response
+if [ -n "$response" ]; then
+    MYSQL_ROOT_PASSWORD=$response
+fi
+
+if [ "${InstallPortal}" = "true" ]; then
+   echo "STACKOPS PORTAL PARAMETERS"
+   echo "=========================="
+   echo "StackOps Portal needs the username, password and the name of the schema. Please enter the information below:"
+   echo "Enter the Portal MySQL user [${PortalMySqlUsr}]: "
+   read response
+   if [ -n "$response" ]; then
+        PortalMySqlUsr=$response
+    fi
+
+    echo "Enter the Portal MySQL password [${PortalMySqlPassword}]: "
+    read response
+    if [ -n "$response" ]; then
+        PortalMySqlPassword=$response
+    fi
+
+    echo "Enter the Portal MySQL Database Schema [${PortalMySqlSchema}]: "
+    read response
+    if [ -n "$response" ]; then
+        PortalMySqlSchema=$response
+    fi
+fi
+
+if [ "${InstallChargeback}" = "true" ]; then
+    echo "STACKOPS CHARGEBACK PARAMETERS"
+    echo "=========================="
+    echo "StackOps Chargeback needs an schema for data logging and another for rating processing. The install will ask for both username, password and the name of the schema. The installer will ask for the AQMP host and port plus the username and password. Finally, you need to enter the username and password of the account created for the component in keystone. Please enter the information below:"
+    echo "Enter the Activity MySQL user [${ActivityMySqlUsr}]: "
+    read response
+    if [ -n "$response" ]; then
+        ActivityMySqlUsr=$response
+    fi
+
+    echo "Enter the Activity MySQL password [${ActivityMySqlPassword}]: "
+    read response
+    if [ -n "$response" ]; then
+        ActivityMySqlPassword=$response
+    fi
+
+    echo "Enter the Activity MySQL Database Schema [${ActivityMySqlSchema}]: "
+    read response
+    if [ -n "$response" ]; then
+        ActivityMySqlSchema=$response
+    fi
+
+    echo "Enter the Chargeback MySQL user [${ChargebackMySqlUsr}]: "
+    read response
+    if [ -n "$response" ]; then
+        ChargebackMySqlUsr=$response
+    fi
+
+    echo "Enter the Chargeback MySQL password [${ChargebackMySqlPassword}]: "
+    read response
+    if [ -n "$response" ]; then
+        ChargebackMySqlPassword=$response
+    fi
+
+    echo "Enter the Chargeback MySQL Database Schema [${ChargebackMySqlSchema}]: "
+    read response
+    if [ -n "$response" ]; then
+        ChargebackMySqlSchema=$response
+    fi
+
+    echo "Enter the Chargeback Keystone user [${ChargebackKeystoneUsr}]: "
+    read response
+    if [ -n "$response" ]; then
+        ChargebacKeystoneUsr=$response
+    fi
+
+    echo "Enter the Chargeback Keystone password [${ChargebackKeystonePassword}]: "
+    read response
+    if [ -n "$response" ]; then
+        ChargebackKeystonePassword=$response
+    fi
+
+    echo "Enter the AQMP Host [${RABBITMQ_HOST}]: "
+    read response
+    if [ -n "$response" ]; then
+        RABBITMQ_HOST=$response
+    fi
+
+    echo "Enter the AQMP Port [${RABBITMQ_PORT}]: "
+    read response
+    if [ -n "$response" ]; then
+        RABBITMQ_PORT=$response
+    fi
+
+    echo "Enter the AQMP username [$RABBITMQ_USR]: "
+    read response
+    if [ -n "$response" ]; then
+        RABBITMQ_USR=$response
+    fi
+
+    echo "Enter the AQMP password [$RABBITMQ_PASSWORD]: "
+    read response
+    if [ -n "$response" ]; then
+        RABBITMQ_PASSWORD=$response
+    fi
+fi
+
 auth_token=`__get_auth_token`
-if [ ! -n "${auth_token}" ] ; then
-    echo " * ERROR: Cannot authenticate the admin user with url, user, tenant and password given. Check your credentials and re-run the script."
-    exit 1
-fi
-is_portal_admin=`__is_portal_admin $auth_token`
+#is_portal_admin=`__is_portal_admin $auth_token`
+#is_chargeback_roles=`__is_chargeback_roles $auth_token`
+ROLE_ADMIN=`__get_role_id $auth_token admin`
+USER_ADMIN_ID=`__get_user_id $auth_token admin`
+ADMIN_TENANT_ID=`__get_tenant_id $auth_token admin`
 
-if [ "${is_portal_admin}" != "True" ] ; then
-    echo " * ERROR: The admin user does not have the role ROLE_PORTAL_ADMIN. Add this role to the admin and re-run the script."
-    exit 1
+if [ ! -z "${ROLE_ADMIN}" ]; then
+    echo "ROLE_ADMIN_ID: $ROLE_ADMIN"
+else
+    echo "admin role does not exists. There is something wrong in your OpenStack installation."
+    exit  1
 fi
 
-echo "     Auth Token:   ${auth_token}"
+if [ "${InstallPortal}" = "true" ]; then
+    __configure_portal_keystone
+fi
+
+if [ "${InstallChargeback}" = "true" ]; then
+    __configure_chargeback_keystone
+fi
+
+#echo $OS_USERNAME
+#echo $OS_PASSWORD
+#echo $OS_TENANT_NAME
+#echo $OS_AUTH_URL
+#echo $auth_token
+#echo $is_portal_admin
 
 }
+
 __check_keystone
 
 __check_mysql(){
@@ -590,9 +1003,10 @@ if [ "${InstallMySql}" = "true" ]; then
 fi
 
 install_ubuntu_1404() {
-    __configure_apt_repos "havana"
+    __configure_apt_repos "icehouse"
     __check_command "curl"
     if [ "${InstallMySql}" = "true" ]; then
+	echo "* Installing MySQL server...\n"
         echo mysql-server mysql-server/root_password password $MYSQL_ROOT_PASSWORD | debconf-set-selections
         echo mysql-server mysql-server/root_password_again password $MYSQL_ROOT_PASSWORD | debconf-set-selections
         echo mysql-server mysql-server/start_on_boot boolean true | debconf-set-selections
@@ -601,24 +1015,83 @@ install_ubuntu_1404() {
         echo stackops-portal stackops-portal/mysql-admin-password $MYSQL_ROOT_PASSWORD | debconf-set-selections
     fi
     if [ "${InstallApache}" = "true" ]; then
+	echo "* Installing Apache server without SSL...\n"
         __apt_get_noinput apache2
 	__configure_apache
 	service apache2 restart
     fi
     if [ "${InstallApacheWithSSL}" = "true" ]; then
+	echo "* Installing Apache server with SSL...\n"
         __apt_get_noinput apache2
         __configure_apache_ssl
         service apache2 restart
     fi
 
-    echo stackops-portal stackops-portal/keystone-admin-url $OS_AUTH_URL | debconf-set-selections
+    if [ "${InstallPortal}" = "true" ] || [ "${InstallChargeback}" = "true" ]; then
+ 	echo "* Installing OpenJDK and Tomcat...\n"
+       __apt_get_noinput mysql-client
+        __apt_get_noinput openjdk-7-jdk
+        __configure_clinker_key http://static.stackops.net/clinker.cert
+        __apt_get_noinput tomcat7
+    fi
 
-    __apt_get_noinput mysql-client
-    __apt_get_noinput openjdk-7-jdk
-    __configure_clinker_key http://static.stackops.net/clinker.cert
-    __apt_get_noinput tomcat7
-    __apt_get_noinput stackops-portal
-    service tomcat7 restart
+    if [ "${InstallPortal}" = "true" ]; then
+	echo "* Installing StackOps Portal...\n"
+	echo stackops-portal stackops-portal/present-stackops-license boolean true | debconf-set-selections
+	echo stackops-portal stackops-portal/mysql-usr string ${PortalMySqlUsr} | debconf-set-selections
+	echo stackops-portal stackops-portal/mysql-password password ${PortalMySqlPassword} | debconf-set-selections
+	echo stackops-portal stackops-portal/mysql-schema string ${PortalMySqlSchema} | debconf-set-selections
+	echo stackops-portal stackops-portal/mysql-host string ${MySqlHost} | debconf-set-selections
+	echo stackops-portal stackops-portal/mysql-port string ${MySqlPort} | debconf-set-selections
+	echo stackops-portal stackops-portal/mysql-admin-password password ${MYSQL_ROOT_PASSWORD} | debconf-set-selections
+	echo stackops-portal stackops-portal/mysql-install boolean true | debconf-set-selections
+        echo stackops-portal stackops-portal/mysql-purgedb boolean false | debconf-set-selections
+	echo stackops-portal stackops-portal/keystone-url string ${KeystoneUrl} | debconf-set-selections
+	echo stackops-portal stackops-portal/keystone-admin-url string ${OS_AUTH_URL} | debconf-set-selections
+	echo stackops-portal stackops-portal/keystone-admin-token password ${OS_AUTH_TOKEN} | debconf-set-selections
+        __apt_get_noinput stackops-portal
+    fi
+
+    if [ "${InstallChargeback}" = "true" ]; then
+	echo "* Installing StackOps Chargeback...\n"
+        echo stackops-activity stackops-activity/present-stackops-license boolean true | debconf-set-selections
+        echo stackops-activity stackops-activity/mysql-usr string ${ActivityMySqlUsr} | debconf-set-selections
+        echo stackops-activity stackops-activity/mysql-password password ${ActivityMySqlPassword} | debconf-set-selections
+        echo stackops-activity stackops-activity/mysql-schema string ${ActivityMySqlSchema} | debconf-set-selections
+        echo stackops-activity stackops-activity/mysql-host string ${MySqlHost} | debconf-set-selections
+        echo stackops-activity stackops-activity/mysql-port string ${MySqlPort} | debconf-set-selections
+        echo stackops-activity stackops-activity/mysql-admin-password password ${MYSQL_ROOT_PASSWORD} | debconf-set-selections
+        echo stackops-activity stackops-activity/mysql-install boolean true | debconf-set-selections
+        echo stackops-activity stackops-activity/mysql-purgedb boolean false | debconf-set-selections
+        echo stackops-activity stackops-activity/keystone-url string ${OS_AUTH_URL} | debconf-set-selections
+        echo stackops-activity stackops-activity/keystone-admin-token password ${OS_AUTH_TOKEN} | debconf-set-selections
+        echo stackops-activity stackops-activity/keystone-usr string ${ChargebackKeystoneUsr} | debconf-set-selections
+        echo stackops-activity stackops-activity/keystone-password password ${ChargebackKeystonePassword} | debconf-set-selections
+        echo stackops-activity stackops-activity/rabbit-usr string ${RABBITMQ_USR} | debconf-set-selections
+        echo stackops-activity stackops-activity/rabbit-password password ${RABBITMQ_PASSWORD} | debconf-set-selections
+        echo stackops-activity stackops-activity/rabbit-host string ${RABBITMQ_HOST} | debconf-set-selections
+        echo stackops-activity stackops-activity/rabbit-port string ${RABBITMQ_PORT} | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/present-stackops-license boolean true | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/mysql-usr string ${ChargebackMySqlUsr} | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/mysql-password password ${ChargebackMySqlPassword} | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/mysql-schema string ${ChargebackMySqlSchema} | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/mysql-activity-schema string ${ActivityMySqlSchema} | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/mysql-host string ${MySqlHost} | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/mysql-port string ${MySqlPort} | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/mysql-admin-password password ${MYSQL_ROOT_PASSWORD} | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/mysql-install boolean true | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/mysql-purgedb boolean false | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/keystone-url string ${OS_AUTH_URL} | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/keystone-admin-token password ${OS_AUTH_TOKEN} | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/keystone-usr string ${ChargebackKeystoneUsr} | debconf-set-selections
+        echo stackops-chargeback stackops-chargeback/keystone-password password ${ChargebackKeystonePassword} | debconf-set-selections
+        __apt_get_noinput stackops-activity
+        __apt_get_noinput stackops-chargeback
+    fi
+
+    if [ "${InstallPortal}" = "true" ] || [ "${InstallChargeback}" = "true" ]; then
+        service tomcat7 restart
+    fi
 
 }
 
